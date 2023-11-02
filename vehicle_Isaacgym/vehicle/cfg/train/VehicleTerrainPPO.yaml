@@ -1,0 +1,118 @@
+name: PPO
+seed: -1
+
+clip_observations: 5.0
+clip_actions: 1.0
+
+policy: # only works for MlpPolicy right now
+  pi_hid_sizes: [1024, 1024, 512]
+  vf_hid_sizes: [1024, 1024, 512]
+  activation: elu # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+learn:
+  agent_name: shadow_hand
+  test: False
+  resume: 0
+  save_interval: 1000 # check for potential saves every this many iterations
+  print_log: True
+
+  # rollout params
+  max_iterations: 6500
+
+  # training params
+  cliprange: 0.2
+  ent_coef: 0
+  nsteps: 8
+  noptepochs: 5
+  nminibatches: 4 # this is per agent
+  max_grad_norm: 1
+  optim_stepsize: 3.e-4 # 3e-4 is default for single agent training with constant schedule
+  schedule: adaptive # could be adaptive or linear or fixed
+  desired_kl: 0.016
+  gamma: 0.96
+  lam: 0.95
+  init_noise_std: 0.8
+
+  log_interval: 1
+  asymmetric: False
+params:
+  seed: ${...seed}
+
+  algo:
+    name: a2c_continuous
+
+  model:
+    name: continuous_a2c_logstd
+
+  network:
+    name: actor_critic
+    separate: True
+
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+        sigma_init:
+          name: const_initializer
+          val: 0. # std = 1.
+        fixed_sigma: True
+
+    mlp:
+      units: [512, 256, 128]
+      activation: elu
+      d2rl: False
+
+      initializer:
+        name: default
+      regularizer:
+        name: None
+    # rnn:
+    #   name: lstm
+    #   units: 128
+    #   layers: 1
+    #   before_mlp: True
+    #   concat_input: True
+    #   layer_norm: False
+
+
+  load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
+  load_path: ${...checkpoint} # path to the checkpoint to load
+
+  config:
+    name: ${resolve_default:AnymalTerrain,${....experiment}}
+    full_experiment_name: ${.name}
+    env_name: rlgpu
+    ppo: True
+    multi_gpu: ${....multi_gpu}
+    mixed_precision: True
+    normalize_input: True
+    normalize_value: True
+    normalize_advantage: True
+    value_bootstrap: True
+    clip_actions: False
+    num_actors: ${....task.env.numEnvs}
+    reward_shaper:
+      scale_value: 1.0
+    gamma: 0.99
+    tau: 0.95
+    e_clip: 0.2
+    entropy_coef: 0.001
+    learning_rate: 3.e-4 # overwritten by adaptive lr_schedule
+    lr_schedule: adaptive
+    kl_threshold: 0.008 # target kl for adaptive lr
+    truncate_grads: True
+    grad_norm: 1.
+    horizon_length: 24
+    minibatch_size: 384
+    mini_epochs: 5
+    critic_coef: 2
+    clip_value: True
+    seq_len: 4 # only for rnn
+    bounds_loss_coef: 0.
+
+    max_epochs: ${resolve_default:1500,${....max_iterations}}
+    save_best_after: 100
+    score_to_win: 20000
+    save_frequency: 50
+    print_stats: True

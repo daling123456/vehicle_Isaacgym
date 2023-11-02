@@ -1,0 +1,704 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="Pi">
+
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="0.00133848490515343 5.14689522907764E-06 -0.0136090532207086"
+        rpy="0 0 0" />
+      <mass
+        value="1.00378371069595" />
+      <inertia
+        ixx="0.00113315236598304"
+        ixy="3.03570814161609E-09"
+        ixz="-1.62664474861079E-07"
+        iyy="0.001911747175378"
+        iyz="1.34243687280852E-10"
+        izz="0.00241030986629113" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+    <!-- ###########FL############## -->
+  <link
+    name="FL_crotch_Link">
+    <inertial>
+      <origin
+        xyz="0.0256169182441916 0.0165416588699999 -4.90880668981841E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.084455265620677" />
+      <inertia
+        ixx="2.71505787132732E-05"
+        ixy="-8.00387812004604E-06"
+        ixz="-5.92288354455041E-08"
+        iyy="3.52401891460416E-05"
+        iyz="-3.45132254889726E-09"
+        izz="3.3823779852933E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_crotch_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_crotch_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FL_crotch_joint"
+    type="revolute">
+    <origin
+      xyz="0.115 0.05 -0.0325"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="FL_crotch_Link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit effort="80.0" lower="-0.72" upper="0.49" velocity="20"/>
+  </joint>
+  <link
+    name="FL_thigh_Link">
+    <inertial>
+      <origin
+        xyz="0.00096019916007356 0.00893006498058689 -0.0566644934375178"
+        rpy="0 0 0" />
+      <mass
+        value="0.2062744308533" />
+      <inertia
+        ixx="0.000289914582443929"
+        ixy="-2.63372560927896E-09"
+        ixz="2.63697363718518E-06"
+        iyy="0.000319310161915524"
+        iyz="1.71899786065963E-06"
+        izz="5.04038623771187E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_thigh_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_thigh_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FL_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="0.0399999999998341 0.0539983529453723 0.000359178774149926"
+      rpy="0 0 0" />
+    <parent
+      link="FL_crotch_Link" />
+    <child
+      link="FL_thigh_Link" />
+    <axis
+      xyz="0 -0.99997787843264 -0.00665151451595182" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+  <link
+    name="FL_calf_Link">
+    <inertial>
+      <origin
+        xyz="-0.0002202356677381 0.00987175223392316 -0.0482127438446368"
+        rpy="0 0 0" />
+      <mass
+        value="0.0483849808171367" />
+      <inertia
+        ixx="1.82735053812336E-05"
+        ixy="4.97274885304573E-10"
+        ixz="-6.43320251708019E-08"
+        iyy="1.92689451415005E-05"
+        iyz="1.04981497285364E-07"
+        izz="3.30354888843996E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_calf_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FL_calf_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FL_calf_joint"
+    type="revolute">
+    <origin
+      xyz="0.00215598212551332 0.0312969257088813 -0.119775108348922"
+      rpy="0 0 0" />
+    <parent
+      link="FL_thigh_Link" />
+    <child
+      link="FL_calf_Link" />
+    <axis
+      xyz="0 -0.99997787843264 -0.00665151451595965" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+
+    <!-- ###########FR############## -->
+  <link
+    name="FR_crotch_Link">
+    <inertial>
+      <origin
+        xyz="0.0256305544399877 -0.0165416588565022 -4.90858368999425E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.084455265621055" />
+      <inertia
+        ixx="2.71505787268989E-05"
+        ixy="8.00614015090826E-06"
+        ixz="-4.72644255685669E-08"
+        iyy="3.52401891872756E-05"
+        iyz="3.45330349748465E-09"
+        izz="3.38237798299212E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_crotch_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_crotch_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FR_crotch_joint"
+    type="revolute">
+    <origin
+      xyz="0.115 -0.05 -0.0325"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="FR_crotch_Link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit effort="80.0" lower="-0.49" upper="0.72" velocity="20"/>
+  </joint>
+  <link
+    name="FR_thigh_Link">
+    <inertial>
+      <origin
+        xyz="0.000960098855812386 -0.00894503564351563 -0.0566588115289323"
+        rpy="0 0 0" />
+      <mass
+        value="0.206274430801375" />
+      <inertia
+        ixx="0.000289915012808346"
+        ixy="4.87802312259737E-09"
+        ixz="2.62498732078084E-06"
+        iyy="0.000319309593057774"
+        iyz="-1.7617563833944E-06"
+        izz="5.04040008261291E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_thigh_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_thigh_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FR_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="0.04 -0.053998 0.00035918"
+      rpy="0 0 0" />
+    <parent
+      link="FR_crotch_Link" />
+    <child
+      link="FR_thigh_Link" />
+    <axis
+      xyz="0 0.99998 -0.0066515" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+  <link
+    name="FR_calf_Link">
+    <inertial>
+      <origin
+        xyz="-0.000220229931619964 -0.00977418051539439 -0.0482181911351247"
+        rpy="0 0 0" />
+      <mass
+        value="0.0483850491426625" />
+      <inertia
+        ixx="1.82735095335642E-05"
+        ixy="-3.54063974659177E-10"
+        ixz="-6.43159928537928E-08"
+        iyy="1.92689462714829E-05"
+        iyz="-1.05124877532473E-07"
+        izz="3.30355243443649E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_calf_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/FR_calf_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="FR_calf_joint"
+    type="revolute">
+    <origin
+      xyz="0.00215598212551316 -0.0312969257088814 -0.119775108348922"
+      rpy="0 0 0" />
+    <parent
+      link="FR_thigh_Link" />
+    <child
+      link="FR_calf_Link" />
+    <axis
+      xyz="0 0.999977878432641 -0.00665151451595271" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+
+    <!-- ###########HL############## -->
+  <link
+    name="HL_crotch_Link">
+    <inertial>
+      <origin
+        xyz="-0.0256305544399846 0.0165416588565022 -4.90858369002756E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0844552656210552" />
+      <inertia
+        ixx="2.71505787268989E-05"
+        ixy="8.00614015090826E-06"
+        ixz="4.72644255685728E-08"
+        iyy="3.52401891872757E-05"
+        iyz="-3.45330349749255E-09"
+        izz="3.38237798299211E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_crotch_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_crotch_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HL_crotch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.115 0.05 -0.0325"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="HL_crotch_Link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit effort="80.0" lower="-0.72" upper="0.49" velocity="20"/>
+  </joint>
+  <link
+    name="HL_thigh_Link">
+    <inertial>
+      <origin
+        xyz="-0.000960098855812525 0.00894503564351555 -0.0566588115289323"
+        rpy="0 0 0" />
+      <mass
+        value="0.206274430801375" />
+      <inertia
+        ixx="0.000289915012808345"
+        ixy="4.87802312259656E-09"
+        ixz="-2.62498732078101E-06"
+        iyy="0.000319309593057774"
+        iyz="1.7617563833944E-06"
+        izz="5.04040008261291E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_thigh_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_thigh_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HL_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.039999999999831 0.0539983529453723 0.000359178774149427"
+      rpy="0 0 0" />
+    <parent
+      link="HL_crotch_Link" />
+    <child
+      link="HL_thigh_Link" />
+    <axis
+      xyz="0 -0.99997787843264 -0.0066515145159517" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+  <link
+    name="HL_calf_Link">
+    <inertial>
+      <origin
+        xyz="-2.23180575001092E-05 0.0403628342695992 -0.0615128453120109"
+        rpy="0 0 0" />
+      <mass
+        value="0.0483850491426628" />
+      <inertia
+        ixx="1.82735095335645E-05"
+        ixy="-3.54063974659879E-10"
+        ixz="6.43159928537837E-08"
+        iyy="1.92689462714831E-05"
+        iyz="1.05124877532479E-07"
+        izz="3.30355243443649E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_calf_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.6 0.6 0.6 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HL_calf_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HL_calf_joint"
+    type="revolute">
+    <origin
+      xyz="-0.00191343413639342 0.00070827195467657 -0.106480454172035"
+      rpy="0 0 0" />
+    <parent
+      link="HL_thigh_Link" />
+    <child
+      link="HL_calf_Link" />
+    <axis
+      xyz="0 0.999977878432641 -0.00665151451595271" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+
+    <!-- ###########HR############## -->
+  <link
+    name="HR_crotch_Link">
+    <inertial>
+      <origin
+        xyz="-0.0256169182441885 -0.01654165887 -4.90880668981286E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0844552656206767" />
+      <inertia
+        ixx="2.71505787132731E-05"
+        ixy="-8.00387812004602E-06"
+        ixz="5.92288354455117E-08"
+        iyy="3.52401891460415E-05"
+        iyz="3.45132254891491E-09"
+        izz="3.3823779852933E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_crotch_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_crotch_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HR_crotch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.115 -0.05 -0.0325"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="HR_crotch_Link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit effort="80.0" lower="-0.49" upper="0.72" velocity="20"/>
+  </joint>
+  <link
+    name="HR_thigh_Link">
+    <inertial>
+      <origin
+        xyz="-0.000960199160073422 -0.00893006498058689 -0.0566644934375174"
+        rpy="0 0 0" />
+      <mass
+        value="0.2062744308533" />
+      <inertia
+        ixx="0.00028991458244393"
+        ixy="-2.63372560926277E-09"
+        ixz="-2.63697363718538E-06"
+        iyy="0.000319310161915524"
+        iyz="-1.71899786065965E-06"
+        izz="5.04038623771188E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_thigh_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_thigh_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HR_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.04 -0.053998 0.00035918"
+      rpy="0 0 0" />
+    <parent
+      link="HR_crotch_Link" />
+    <child
+      link="HR_thigh_Link" />
+    <axis
+      xyz="0 0.99998 -0.0066515" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+  <link
+    name="HR_calf_Link">
+    <inertial>
+      <origin
+        xyz="0.00022095554276666 -0.00987289256566612 -0.0483841709620029"
+        rpy="0 0 0" />
+      <mass
+        value="0.0483849809894394" />
+      <inertia
+        ixx="1.82735054147423E-05"
+        ixy="4.920909860765E-10"
+        ixz="6.43320521324408E-08"
+        iyy="1.92689146104874E-05"
+        iyz="-1.07276539311185E-07"
+        izz="3.30357941291964E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_calf_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Pi/meshes/HR_calf_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="HR_calf_joint"
+    type="revolute">
+    <origin
+      xyz="-0.002156 -0.031297 -0.11978"
+      rpy="0 0 0" />
+    <parent
+      link="HR_thigh_Link" />
+    <child
+      link="HR_calf_Link" />
+    <axis
+      xyz="0 -0.99998 -0.0066515" />
+    <limit effort="80.0" lower="-9.42477796077" upper="9.42477796077" velocity="20"/>
+  </joint>
+</robot>

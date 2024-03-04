@@ -16,10 +16,11 @@ env:
   enableDebugVis: False
 
   terrain:
-    terrainType: trimesh # none, plane, or trimesh
+    terrainType: boxes # none, plane, or trimesh
     staticFriction: 1.0  # [-]
     dynamicFriction: 1.0  # [-]
     restitution: 0.        # [-]
+    border_size: 0  # 25 # [m]
     # rough terrain only:
     curriculum: true
     maxInitMapLevel: 0
@@ -31,6 +32,33 @@ env:
     terrainProportions: [0.1, 0.1, 0.35, 0.25, 0.2]
     # tri mesh only:
     slopeTreshold: 0.5
+    proportions: []
+    num_rows: 10  # number of terrain rows (levels)
+    num_cols: 20  # number of terrain cols (types)
+    num_sub_terrains: 0
+    env_origins: { }
+    terrain_length: 8.
+    terrain_width: 8.
+    horizontal_scale: 0.1  # [m]
+    width_per_env_pixels: 0
+    length_per_env_pixels: 0
+    border: 0
+    tot_cols: 0
+    tot_rows: 0
+    row_indices: []
+    col_indices: []
+    x_offset: 0  
+    rows_offset: 0
+    env_length: 0
+    env_width: 0
+    difficulty_scale: 1.
+    vertical_scale: 0.005  # [m]
+    max_platform_height: 0.2
+    terrain_smoothness: 0.005
+    slope_treshold: 0.75
+    static_friction: 1.0
+    dynamic_friction: 1.0
+
 
   baseInitState:
     pos: [0.0, 0.0, 1.50] # x,y,z [m]
@@ -76,7 +104,7 @@ env:
     footName: calf # SHANK if collapsing fixed joint, FOOT otherwise
     kneeName: thigh
     collapseFixedJoints: True
-    fixBaseLink: false
+    fixBaseLink: true
     defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
 
   learn:

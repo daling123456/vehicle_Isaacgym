@@ -9,10 +9,10 @@ import torch.nn as nn
 from torch.optim import Adam
 # from torch import Tensor
 from gym.spaces import Space
-from vehicle.algorithms.rl.dpg import MLPActorCritic
-from vehicle.algorithms.rl.dpg import ReplayBuffer
-from vehicle.algorithms.low_level_control.cpg import CPG
-from vehicle.algorithms.low_level_control.inverse_locomotion import conventional_control
+from vehicle_Isaacgym.vehicle.algorithms.rl.dpg import MLPActorCritic
+from vehicle_Isaacgym.vehicle.algorithms.rl.dpg import ReplayBuffer
+from vehicle_Isaacgym.vehicle.algorithms.low_level_control.cpg import CPG
+from vehicle_Isaacgym.vehicle.algorithms.low_level_control.inverse_locomotion import conventional_control
 from torch.utils.tensorboard import SummaryWriter
 
 class DDPG:

@@ -1,10 +1,9 @@
 import gym
 from datetime import datetime
 
-
 # from vehicle.utils.reformat import omegaconf_to_dict
-from vehicle.tasks import task_map
-from vehicle.utils.rlgames_utils import get_rlgames_env_creator
+from vehicle_Isaacgym.vehicle.tasks import task_map
+from vehicle_Isaacgym.vehicle.utils.rlgames_utils import get_rlgames_env_creator
 
 time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 

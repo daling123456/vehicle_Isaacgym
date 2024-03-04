@@ -32,8 +32,8 @@ from isaacgym import gymtorch
 
 import torch
 
-from vehicle.tasks.base.vec_task import VecTask
-from vehicle.utils.torch_jit_utils import *
+from vehicle_Isaacgym.vehicle.tasks.base.vec_task import VecTask
+from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import *
 
 class VehicleTerrain(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
@@ -60,12 +60,12 @@ class VehicleTerrain(VecTask):
         self.decimation = self.cfg["env"]["control"]["decimation"]
         self.dt = self.decimation * self.cfg["sim"]["dt"]
         self.curriculum = self.cfg["env"]["terrain"]["curriculum"]
-        self.decimation = self.cfg["env"]["control"]["decimation"]
         self.Kp = self.cfg["env"]["control"]["stiffness"]
         self.Kd = self.cfg["env"]["control"]["damping"]
         self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"]
         self.max_episode_length = int(self.max_episode_length_s/ self.dt + 0.5)
         self.push_interval = int(self.cfg["env"]["learn"]["pushInterval_s"] / self.dt + 0.5)
+        self.base_height=self.cfg['env']['baseInitState']['pos'][2]
 
         # reward scales
         self.rew_scales = {}
@@ -77,6 +77,10 @@ class VehicleTerrain(VecTask):
         self.rew_scales["action_rate"] = self.cfg["env"]["learn"]["actionRateRewardScale"]
         self.rew_scales["termination"] = self.cfg["env"]["learn"]["terminalReward"]
         self.rew_scales["stumble"] = self.cfg["env"]["learn"]["wheelStumbleRewardScale"]
+        self.rew_scales["orient"] = self.cfg["env"]["learn"]["orientationRewardScale"]
+        self.rew_scales["air_time"] = self.cfg["env"]["learn"]["wheelAirTimeRewardScale"]
+        self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
+        self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
 
 
 
@@ -94,6 +98,8 @@ class VehicleTerrain(VecTask):
         net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
 
         self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
         #create wrapper tensors
         self.dof_state=gymtorch.wrap_tensor(_dof_state_tensor)
@@ -101,9 +107,13 @@ class VehicleTerrain(VecTask):
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
         self.root_states=gymtorch.wrap_tensor(_actor_root_state)    #position([0:3]), rotation([3:7]), linear velocity([7:10]), and angular velocity([10:13]).
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
-        # print(self.contact_forces.shape)
+
 
         # init some data used later
+        self.action_lower_limit = torch.tensor([-0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3,
+                -0.5, -0.5, -0.7, -3, -0.7, -0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3, ], device=self.device)
+        self.action_upper_limit = torch.tensor([0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3,
+                0.5, 0.5, 0.7, 3, 0.7, 0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3, ], device=self.device)
         self.common_step_counter = 0
         self.commands=torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
         self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
@@ -111,12 +121,15 @@ class VehicleTerrain(VecTask):
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
+        self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
+        self.wheel_air_time = torch.zeros(self.num_envs, 6, dtype=torch.float, device=self.device, requires_grad=False)
+        self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
 
 
         self.height_points=self.init_height_points()
         self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
         torch_zeros = lambda : torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
-        self.episode_sums = {"lin_vel_xy": torch_zeros(), "lin_vel_z": torch_zeros(), "ang_vel_z": torch_zeros(),       #TODO:  修改
+        self.episode_sums = {"lin_vel_x": torch_zeros(), "lin_vel_yz": torch_zeros(), "ang_vel_z": torch_zeros(),       #TODO:  修改
                              "ang_vel_xy": torch_zeros(),
                              "orient": torch_zeros(), "torques": torch_zeros(), "joint_acc": torch_zeros(),
                              "base_height": torch_zeros(),
@@ -145,8 +158,6 @@ class VehicleTerrain(VecTask):
         plane_params.restitution = self.cfg["env"]["terrain"]["restitution"]
         self.gym.add_ground(self.sim, plane_params)
 
-
-
     def _create_trimesh(self):
         self.terrain=Terrain()
         tm_params = gymapi.TriangleMeshParams()
@@ -154,7 +165,6 @@ class VehicleTerrain(VecTask):
         tm_params.nb_triangles=self.terrain.triangles.shape[0]
 
         # self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C', tm_params))
-
 
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -167,7 +177,8 @@ class VehicleTerrain(VecTask):
         asset_options.flip_visual_attachments=True
         asset_options.armature=0.0
         asset_options.disable_gravity=False
-        asset_options.fix_base_link=False
+        # asset_options.replace_cylinder_with_capsule=True
+        asset_options.fix_base_link=self.cfg["env"]["urdfAsset"]["fixBaseLink"]
         vehicle_asset=self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
         self.num_dof=self.gym.get_asset_dof_count(vehicle_asset)
         self.num_bodies=self.gym.get_asset_rigid_body_count(vehicle_asset)
@@ -184,12 +195,15 @@ class VehicleTerrain(VecTask):
 
         dof_props = self.gym.get_asset_dof_properties(vehicle_asset)
         dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
-        dof_props["stiffness"].fill(100000.0)
-        dof_props["damping"].fill(20000.0)
+        dof_props["stiffness"].fill(self.cfg['env']['control']['stiffness'])
+        dof_props["damping"].fill(self.cfg['env']['control']['damping'])
         body_names = self.gym.get_asset_rigid_body_names(vehicle_asset)
         wheel_names=[s for s in body_names if "wheel" in s]
         self.wheel_index=torch.zeros(len(wheel_names),dtype=torch.long, device=self.device, requires_grad=False)
+        self.wheel_dof_index = torch.zeros(len(wheel_names), dtype=torch.long, device=self.device,requires_grad=False)
+        self.dof_names = self.gym.get_asset_dof_names(vehicle_asset)
         self.base_index = 0
+        self.slider_index=0
         #env origins
         self.env_origins=torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         if not self.curriculum: self.cfg['env']['terrain']['maxInitMapLevel']=self.cfg['env']['terrain']['numLevels']-1
@@ -209,36 +223,46 @@ class VehicleTerrain(VecTask):
                 pos=self.env_origins[i].clone()
                 pos[:2]+=torch_rand_float(-1, 1., (2, 1), device=self.device).squeeze(1)
                 start_pose.p=gymapi.Vec3(*pos)
-
             for s in range(len(rigid_shape_prop)):
                 rigid_shape_prop[s].friction=friction_buckets[i%num_buckets]        #随机化摩擦力
             self.gym.set_asset_rigid_shape_properties(vehicle_asset, rigid_shape_prop)
             vehicle_handle=self.gym.create_actor(env_handle, vehicle_asset, start_pose, 'vehicle', i, 0, 0)
+
+
+            # self.dof_names = self.gym.get_actor_dof_names(env_handle, vehicle_handle)
+            wheel_dof_names = [s for s in self.dof_names if "wheel" in s]
+            for s in wheel_dof_names:
+                wheel_indices=self.gym.find_actor_dof_index(env_handle, vehicle_handle, s, gymapi.DOMAIN_ENV)       #TODO: ==-1 ???????
+                dof_props['driveMode'][wheel_indices]=gymapi.DOF_MODE_VEL
+                dof_props['damping'][wheel_indices]=1500.0
+                # print(wheel_indices)
+            # print(dof_props['driveMode'])
+            self.gym.set_actor_dof_properties(env_handle, vehicle_handle, dof_props)
             self.envs.append(env_handle)
             self.vehicle_handles.append(vehicle_handle)
-
-            actor_index = self.gym.get_actor_dof_names(env_handle, vehicle_handle)
-            j=0
-            for s in wheel_names:
-                wheel_indices=self.gym.find_actor_dof_index(env_handle, vehicle_handle, s, gymapi.DOMAIN_ENV)
-                dof_props['driveMode'][wheel_indices]=gymapi.DOF_MODE_EFFORT
-                dof_props['damping'][wheel_indices]=1500.0
-            self.gym.set_actor_dof_properties(env_handle, vehicle_handle, dof_props)
+        dof_names=self.gym.get_actor_dof_names(self.envs[0], self.vehicle_handles[0])
+        wheel_dof_names=[s for s in dof_names if "wheel" in s]
         for i in range(len(wheel_names)):
             self.wheel_index[i]=self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], wheel_names[i])
+            self.wheel_dof_index[i]=self.gym.find_actor_dof_index(self.envs[0], self.vehicle_handles[0], wheel_dof_names[i], gymapi.DOMAIN_ENV)
 
 
-        self.base_index=self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], "base")
+        self.base_index=self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], "base_link")
+        self.slider_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], "slider")
 
+        ########计算bodies、joints、dofs的数量###########
+        env = self.envs[0]
+        actor_handle = self.vehicle_handles[0]
+        num_bodies = self.gym.get_actor_rigid_body_count(env, actor_handle)
+        num_joints = self.gym.get_actor_joint_count(env, actor_handle)
+        num_dofs = self.gym.get_actor_dof_count(env, actor_handle)
+        print(f"-----num_bodies:{num_bodies},------num_joints:{num_joints},------num_dofs:{num_dofs}--------")
 
     def reset_idx(self, env_ids):
         position_offset=torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device)
         velocities= torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
-        # print(self.default_dof_pos[env_ids].shape)
         self.dof_pos[env_ids]=self.default_dof_pos[env_ids]
         self.dof_vel[env_ids]=velocities
-        # print(position_offset)
-        # print(self.dof_pos[env_ids])
 
         env_ids_int32=env_ids.to(dtype=torch.int32)
         if self.custom_origins:
@@ -250,12 +274,10 @@ class VehicleTerrain(VecTask):
             self.root_states[env_ids] = self.base_init_state
         #重置指定索引的无人车的初始位置为 self.root_states
         self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(self.root_states), gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
-        # print(self.dof_state[env_ids])
-        # print(self.dof_pos[env_ids])
+
 
         #重置指定索引的无人车的初始自由度位姿为 self.dof_state
         self.gym.set_dof_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(self.dof_state), gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
-        # print(self.dof_pos[env_ids])
 
         self.commands[env_ids, 0] = torch_rand_float(self.command_x_range[0], self.command_x_range[1], (len(env_ids), 1), device=self.device).squeeze()
         self.commands[env_ids, 1] = torch_rand_float(self.command_y_range[0], self.command_y_range[1], (len(env_ids), 1), device=self.device).squeeze()
@@ -265,6 +287,7 @@ class VehicleTerrain(VecTask):
         # 清除一些buffer    #TODO： 增加
         self.last_actions[env_ids]= 0.
         self.last_dof_vel[env_ids]= 0.
+        self.progress_buf[env_ids]=0
         self.reset_buf[env_ids]= 1.         #TODO:why?
 
         #填写extras 及计算清理env_ids 对应的episode_sums
@@ -281,21 +304,20 @@ class VehicleTerrain(VecTask):
 
 
     def check_termination(self):    #TODO: 确定一些终止条件
-        # self.reset_buf=torch.norm(self.)
-        self.reset_buf = torch.norm(self.contact_forces[:, self.base_index, :], dim=1) > 10.     #base 的力
-        print(torch.norm(self.contact_forces[:, self.base_index, :], dim=1))
-        # print(self.contact_forces[:,self.base_index, :])
-        # print("self.reset_buf1",self.reset_buf)
+        # self.reset_buf = torch.norm(self.contact_forces[:, self.base_index, :], dim=1) > 1.     #base 的力
+        # print(self.contact_forces.cpu().numpy())
+
+        # print(self.contact_forces[:,self.base_index,:])
+        self.reset_buf=torch.norm(self.contact_forces[:,self.slider_index,:],dim=1)>1
         #six wheels left the plane
         contact=self.contact_forces[:, self.wheel_index, 2]>1.
-        print(~torch.any(contact, dim=1))
+        # print(~torch.any(contact, dim=1))
         self.reset_buf |=~torch.any(contact, dim=1)
+
         #orientation >45度
         # print("self.reset_buf2", self.reset_buf)
 
-
-        self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1,
-                                     torch.ones_like(self.reset_buf), self.reset_buf)
+        self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
 
 
     def compute_observations(self):
@@ -312,34 +334,64 @@ class VehicleTerrain(VecTask):
 
 
     def compute_reward(self):
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        # velocity tracking reward
+        # lin_vel_error = torch.sum(torch.square(self.commands[:, 0] - self.base_lin_vel[:, 0]), dim=1)
+        lin_vel_error = torch.square(self.commands[:, 0] - self.base_lin_vel[:, 0])
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        rew_lin_vel_xy=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_xy']
+        rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_xy']
         rew_ang_vel_z=torch.exp(-ang_vel_error/0.25)*self.rew_scales['ang_vel_z']
+        # print(f"lin_vel_error:{lin_vel_error}, \n ang_vel_error:{ang_vel_error}")
+        # print(torch.exp(-ang_vel_error/0.25))
+        # print(rew_ang_vel_z)
+        # print(self.base_lin_vel[0,:2])
+        # print(self.commands)
 
         # other base velocity penalties
-        rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.rew_scales["lin_vel_z"]
+        # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_z"]
+        rew_lin_vel_yz = torch.sum(torch.square(self.base_lin_vel[:, 1:3]), dim=1) * self.rew_scales["lin_vel_z"]
         rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.rew_scales["ang_vel_xy"]
 
-        # torque penalty
-        # rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.rew_scales["torque"]
-        # joint acc penalty
+        # 5 orientation penalty（pitch roll）
+        rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.rew_scales["orient"]
+
+        # 6 wheel air time penalty 对轮子不贴地的惩罚
+        contact=self.contact_forces[:, self.wheel_index, 2]>1
+        # first_contact = (self.wheel_air_time > 0.) * contact
+        self.wheel_air_time += self.dt
+        rew_airTime = torch.sum(self.wheel_air_time-0.01, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
+        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
+        self.wheel_air_time *= ~contact
+
+
+
+        # 7 joint acc penalty
         rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.rew_scales["joint_acc"]
-        # action rate penalty
+        # 8 action rate penalty
         rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.rew_scales["action_rate"]
-        # stumbling penalty
+        # 9 stumbling penalty
         stumble = (torch.norm(self.contact_forces[:, self.wheel_index, :2], dim=2) > 5.) * (torch.abs(self.contact_forces[:, self.wheel_index, 2]) < 1.)
         rew_stumble = torch.sum(stumble, dim=1) * self.rew_scales["stumble"]
 
-        self.rew_buf= rew_lin_vel_xy + rew_lin_vel_z + rew_ang_vel_xy + rew_ang_vel_z  + rew_joint_acc + rew_action_rate
+        # 10 torque penalty
+        rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.rew_scales["torque"]
+
+        # 11 base height penalty
+        rew_base_height=torch.square(self.root_states[:,2]-self.base_height)*self.rew_scales['base_height']
+
+        self.rew_buf= rew_lin_vel_x + rew_lin_vel_yz + rew_ang_vel_xy + rew_ang_vel_z  + rew_orient + rew_joint_acc + rew_action_rate + rew_base_height \
+                      + rew_airTime
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
+        # print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
+        #       f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
+        #       f"rew_action_rate:{torch.sum(rew_action_rate)}, rew_base_height:{torch.sum(rew_base_height)},\nrew_airTime:{torch.sum(rew_airTime)}, "
+        #       f"rew_torque:{torch.sum(rew_torque)}")
+        # print(f"        total_rewards:{torch.sum(self.rew_buf)}")
 
-
-        # log episode reward sums
-        self.episode_sums["lin_vel_xy"] += rew_lin_vel_xy
+        # log episode rewar d sums
+        self.episode_sums["lin_vel_x"] += rew_lin_vel_x
         self.episode_sums["ang_vel_z"] += rew_ang_vel_z
-        self.episode_sums["lin_vel_z"] += rew_lin_vel_z
+        self.episode_sums["lin_vel_yz"] += rew_lin_vel_yz
         self.episode_sums["ang_vel_xy"] += rew_ang_vel_xy
         # self.episode_sums["torques"] += rew_torque
         self.episode_sums["joint_acc"] += rew_joint_acc
@@ -348,14 +400,22 @@ class VehicleTerrain(VecTask):
 
 
     def pre_physics_step(self, actions):
-        # print(actions.cpu().numpy())
         self.actions=actions.clone().to(self.device)
+        # self.actions=self.actions+self.default_dof_pos
+        self.actions=torch.max(torch.min(self.actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
+        self.actions[:,self.slider_index-1]=0.0
+
+        # self.actions=torch.zeros(64, 25, dtype=torch.float32, device="cuda:0")
+        for i in self.wheel_dof_index:
+            self.actions[:, i]*=5
+        # print(self.actions.detach().cpu().numpy())
         # 一次控制多步运动
         for i in range(self.decimation):
-            # torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -80,80)     #TODO:急需修改
-            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(actions))
-            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(actions))          # 神经网络输出的直接是torque控制wheel
-            # self.torques=torques.view(self.torques.shape)
+            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -80,80)     #TODO:急需修改
+            self.torques = torques.view(self.torques.shape)
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
+            # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
+            self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.simulate(self.sim)
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
@@ -378,6 +438,9 @@ class VehicleTerrain(VecTask):
         self.base_lin_vel=quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
+        forward = quat_apply(self.base_quat, self.forward_vec)
+        heading = torch.atan2(forward[:, 1], forward[:, 0])
+        self.commands[:, 2]= torch.clip(0.5 * wrap_to_pi(self.commands[:, 3]- heading), -1., 1)
 
 
         self.check_termination()
@@ -386,8 +449,8 @@ class VehicleTerrain(VecTask):
         env_ids=self.reset_buf.nonzero(as_tuple=False).flatten()
         if len(env_ids)>0:
             self.reset_idx(env_ids)
-        print(env_ids)
         # print(env_ids)
+
         self.compute_observations()     #设置obs_buf
         if self.add_noise:
             self.obs_buf+=(2*torch.rand_like(self.obs_buf)-1)*self.noise_scale_vec
@@ -464,6 +527,9 @@ class VehicleTerrain(VecTask):
             self.gym.step_graphics(self.sim)
             self.gym.draw_viewer(self.viewer, self.sim, True)
             self.gym.sync_frame_time(self.sim)
+
+            self.check_termination()
+            self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.destroy_viewer(self.viewer)
         self.gym.destroy_sim(self.sim)
 

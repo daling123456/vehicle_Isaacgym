@@ -33,11 +33,11 @@ from typing import Callable, Dict, Tuple, Any
 import os
 import gym
 import numpy as np
-from vehicle.tasks import task_map
+from vehicle_Isaacgym.vehicle.tasks import task_map
 from rl_games.common import env_configurations, vecenv
 from rl_games.common.algo_observer import AlgoObserver
 
-from vehicle.utils.utils import set_seed, flatten_dict
+from vehicle_Isaacgym.vehicle.utils.utils import set_seed, flatten_dict
 import torch
 
 

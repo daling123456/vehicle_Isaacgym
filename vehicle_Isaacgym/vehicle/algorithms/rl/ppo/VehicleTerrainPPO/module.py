@@ -29,6 +29,7 @@ class ActorCritic(nn.Module):
             else:
                 actor_layers.append(nn.Linear(actor_hidden_dim[l], actor_hidden_dim[l + 1]))
                 actor_layers.append(activation)
+        actor_layers.append(get_activation("tanh"))
         self.actor = nn.Sequential(*actor_layers)
 
         # Value function

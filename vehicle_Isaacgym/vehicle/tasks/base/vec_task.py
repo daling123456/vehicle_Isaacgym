@@ -35,15 +35,15 @@ import gym
 from gym import spaces
 
 from isaacgym import gymtorch, gymapi
-from vehicle.utils.torch_jit_utils import to_torch
-from vehicle.utils.dr_utils import get_property_setter_map, get_property_getter_map, \
+from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import to_torch
+from vehicle_Isaacgym.vehicle.utils.dr_utils import get_property_setter_map, get_property_getter_map, \
     get_default_setter_args, apply_random_samples, check_buckets, generate_random_samples
 
 import torch
 import numpy as np
 import operator, random
 from copy import deepcopy
-from vehicle.utils.utils import nested_dict_get_attr, nested_dict_set_attr
+from vehicle_Isaacgym.vehicle.utils.utils import nested_dict_get_attr, nested_dict_set_attr
 
 from collections import deque
 
@@ -83,6 +83,7 @@ class Env(ABC):
         if config["sim"]["use_gpu_pipeline"]:
             if self.device_type.lower() == "cuda" or self.device_type.lower() == "gpu":
                 self.device = "cuda" + ":" + str(self.device_id)
+
             else:
                 print("GPU Pipeline can only be used with GPU simulation. Forcing CPU Pipeline.")
                 config["sim"]["use_gpu_pipeline"] = False
@@ -315,7 +316,7 @@ class VecTask(Env):
             (self.num_envs, self.num_states), device=self.device, dtype=torch.float)
         self.rew_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.float)
-        self.reset_buf = torch.ones(
+        self.reset_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long)
         self.timeout_buf = torch.zeros(
              self.num_envs, device=self.device, dtype=torch.long)

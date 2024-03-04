@@ -5,7 +5,7 @@ import numpy as np
 from isaacgym import gymapi
 from isaacgym import gymutil
 # from isaacgym.terrain_utils import *
-from vehicle import assets
+from vehicle_Isaacgym.vehicle import assets
 Kp=200
 def standing():
 

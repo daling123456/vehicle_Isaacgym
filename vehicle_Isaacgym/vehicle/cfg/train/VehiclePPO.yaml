@@ -1,13 +1,20 @@
-name: PPO
+name: VEHICLEPPO
 seed: -1
 
 clip_observations: 5.0
 clip_actions: 1.0
 
 policy: # only works for MlpPolicy right now
-  pi_hid_sizes: [1024, 1024, 512]
-  vf_hid_sizes: [1024, 1024, 512]
-  activation: elu # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+  activation_fn: elu # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+  n_futures: 0
+  geom_dim: 0
+  prop_dim: 0
+  prop_latent_dim: 8
+  geom_latent_dim: 1
+  actor_hidden_dim: [1024, 1024, 512]
+  output_activation_fn: tanh                        #激活函数
+  small_init: false
+
 learn:
   agent_name: shadow_hand
   test: False

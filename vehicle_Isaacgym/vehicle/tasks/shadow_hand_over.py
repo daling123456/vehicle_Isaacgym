@@ -13,8 +13,8 @@ import os
 import random
 import torch
 
-from vehicle.utils.torch_jit_utils import *
-from vehicle.tasks.hand_base.base_task import BaseTask
+from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import *
+from vehicle_Isaacgym.vehicle.tasks.hand_base.base_task import BaseTask
 from isaacgym import gymtorch
 from isaacgym import gymapi
 

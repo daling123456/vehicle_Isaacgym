@@ -1,9 +1,10 @@
 task_name: ${task.name}
 algo_name: ${train.name}
+test: False
+
 
 num_envs: ''
 seed: 42
-
 
 physics_engine: 'physx'
 # whether to use cpu or gpu pipeline
@@ -31,7 +32,7 @@ logdir: 'logs/'
 
 defaults:
   - task: VehicleTerrain
-  - train: PPO
+  - train: ${task}PPO
   - hydra/job_logging: disabled
 
 hydra:

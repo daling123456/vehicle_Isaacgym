@@ -7,11 +7,11 @@ from gym.spaces import Space
 import torch.optim as optim
 import torch.nn as nn
 
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo import ActorCritic
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo import RolloutStorage
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.module import ActorCritic
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.storage import RolloutStorage
 
 
-class PPO:
+class VEHICLEPPO:
     def __init__(self,vec_env, cfg_train, device='cpu', sampler='sequential',log_dir='run', print_log=True, is_testing=False, apply_reset=False, asymmetric=False):
         if not isinstance(vec_env.observation_space, Space):
             raise TypeError("vec_env.observation_space must be a gym Space")

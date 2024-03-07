@@ -47,11 +47,13 @@ class VEHICLEPPO:
         self.schedule = learn_cfg.get("schedule", "fixed")
         self.step_size = learn_cfg["optim_stepsize"]
 
+        self.history_length=self.cfg_train["policy"]["actor"]["tsteps"]
+
 
         #PPO compoment
         self.vec_env=vec_env
         self.actor_critic=ActorCritic(self.observation_space.shape, self.action_space.shape, self.init_noise_std, self.model_cfg).to(self.device)
-        self.storage=RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape, self.action_space.shape, self.device, sampler=sampler)
+        self.storage=RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape, self.action_space.shape, self.history_length, self.device, sampler=sampler)
         self.optimizer=optim.Adam(self.actor_critic.parameters(), lr=self.learning_rate)
 
         #log

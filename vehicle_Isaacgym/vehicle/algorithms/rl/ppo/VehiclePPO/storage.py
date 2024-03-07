@@ -4,7 +4,7 @@ from torch.utils.data.sampler import BatchSampler, SequentialSampler, SubsetRand
 
 class RolloutStorage:
 
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, actions_shape, device='cpu', sampler='sequential'):
+    def __init__(self, num_envs, num_transitions_per_env, obs_shape, actions_shape, history_length, device='cpu', sampler='sequential'):
 
         self.device = device
         self.sampler = sampler
@@ -14,6 +14,8 @@ class RolloutStorage:
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+
+        self.states=torch.zeros(history_length, num_envs, *obs_shape+1, device=self.device)
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)

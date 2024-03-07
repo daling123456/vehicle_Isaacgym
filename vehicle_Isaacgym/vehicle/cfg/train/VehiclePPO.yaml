@@ -6,14 +6,28 @@ clip_actions: 1.0
 
 policy: # only works for MlpPolicy right now
   activation_fn: elu # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+  critic_shape: [1024, 1024, 512]
   n_futures: 0
   geom_dim: 0
   prop_dim: 0
   prop_latent_dim: 8
   geom_latent_dim: 1
-  actor_hidden_dim: [1024, 1024, 512]
   output_activation_fn: tanh                        #激活函数
   small_init: false
+  actor:
+      actor_hidden_shape: [1024, 1024, 512]
+      suspension_hidden_shape: [16, 32]
+      steer_hidden_shape: [16, 32]
+      vision_dim: 0
+      obs_dim: 10    #TODO:
+      history_latent_dim: 8
+      vision_latent_dim: 8
+      suspension_latten_dim: 8
+      steer_latten_dim: 8
+      suspension_output_dim: 12
+      steer_output_dim: 13
+      tsteps: 50
+
 
 learn:
   agent_name: shadow_hand

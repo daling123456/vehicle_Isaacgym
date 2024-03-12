@@ -3,7 +3,7 @@ algo_name: ${train.name}
 test: False
 
 
-num_envs: ''
+num_envs: 64
 seed: 42
 
 physics_engine: 'physx'
@@ -21,7 +21,7 @@ num_threads: 4 # Number of worker threads per scene used by PhysX - for CPU Phys
 solver_type: 1 # 0: pgs, 1: tgs
 num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one in a separate thread
 
-
+printreward: false
 # disables rendering
 headless: False
 #render

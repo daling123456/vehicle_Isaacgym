@@ -82,8 +82,8 @@ class VEHICLEPPO:
                 ep_infos=[]
 
                 for _ in range(self.num_transitions_per_env):
-
-                    actions, actions_log_prob, values, mu, sigma=self.actor_critic.act(current_obs)
+                    self.obs_history = self.storage.states
+                    actions, actions_log_prob, values, mu, sigma=self.actor_critic.act(current_obs, self.obs_history)
                     # actions=torch.clamp(actions, )
                     next_obs, rewards, dones, infos=self.vec_env.step(actions)
                     # print(torch.sum(rewards))
@@ -93,7 +93,7 @@ class VEHICLEPPO:
 
                     ep_infos.append(infos)
 
-                _, _, last_values, _, _=self.actor_critic.act(current_obs)
+                _, _, last_values, _, _=self.actor_critic.act(current_obs, self.obs_history)
                 stop=time.time()
                 colletion_time=stop-start
                 # print("colletion_time",colletion_time)
@@ -125,6 +125,7 @@ class VEHICLEPPO:
         batch=self.storage.mini_batch_generator(self.num_mini_batches)
         for epoch in range(self.num_learning_epochs):
             for indices in batch:
+                # print(indices)
                 obs_batch=self.storage.observations.view(-1, *self.storage.observations.size()[2:])[indices]        #去除reset的观测？
                 act_batch=self.storage.actions.view(-1, self.storage.actions.size(-1))[indices]
                 target_values_batch=self.storage.values.view(-1, 1)[indices]
@@ -133,8 +134,9 @@ class VEHICLEPPO:
                 advantages_batch= self.storage.advantages.view(-1,1)[indices]
                 old_mu_batch=self.storage.mu.view(-1, self.storage.actions.size(-1))[indices]
                 old_sigma_batch=self.storage.sigma.view(-1, self.storage.actions.size(-1))[indices]
+                obs_history=torch.cat((obs_batch, act_batch), dim=1)
 
-                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch=self.actor_critic.evaluate(obs_batch, act_batch)
+                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch=self.actor_critic.evaluate(obs_batch, act_batch, self.obs_history)
 
 
                 if self.desired_kl !=None and self.schedule == 'adaptive':

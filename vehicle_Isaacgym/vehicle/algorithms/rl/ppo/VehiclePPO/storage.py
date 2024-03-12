@@ -8,14 +8,14 @@ class RolloutStorage:
 
         self.device = device
         self.sampler = sampler
+        history_length=50
 
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
-
-        self.states=torch.zeros(history_length, num_envs, *obs_shape+1, device=self.device)
+        self.states=torch.zeros(history_length, num_envs, obs_shape[0]+actions_shape[0], device=self.device)
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -44,6 +44,10 @@ class RolloutStorage:
         self.sigma[self.step].copy_(sigma)
 
         self.step += 1
+
+        states_=torch.cat((observations, actions), dim=1)
+        self.states=torch.roll(self.states, shifts=-1, dims=0)
+        self.states[-1] = states_.clone()
 
     def clear(self):
         self.step = 0
@@ -85,3 +89,9 @@ class RolloutStorage:
 
         batch = BatchSampler(subset, mini_batch_size, drop_last=True)
         return batch
+
+
+    # def enqueue(self, obs, actions):
+    #     states_=torch.cat((obs, actions), dim=1)
+    #     self.states=torch.roll(self.states, shifts=-1, dims=0)
+    #     self.states[-1] = element.clone()

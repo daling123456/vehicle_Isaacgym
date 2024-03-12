@@ -68,6 +68,7 @@ class Vehicle(VecTask):
         self.base_height=self.cfg['env']['baseInitState']['pos'][2]
 
         # reward scales
+        self.print_reward=self.cfg['env']['learn']['printreward']
         self.rew_scales = {}
         self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"]
         self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"]
@@ -383,11 +384,12 @@ class Vehicle(VecTask):
                       + rew_airTime + rew_base_contact
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
-        # print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
-        #       f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
-        #       f"rew_action_rate:{torch.sum(rew_action_rate)}, rew_base_height:{torch.sum(rew_base_height)},\nrew_airTime:{torch.sum(rew_airTime)}, "
-        #       f"rew_base_contact:{torch.sum(rew_base_contact)}")
-        # print(f"        total_rewards:{torch.sum(self.rew_buf)}")
+        if self.print_reward:
+            print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
+                  f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
+                  f"rew_action_rate:{torch.sum(rew_action_rate)}, rew_base_height:{torch.sum(rew_base_height)},\nrew_airTime:{torch.sum(rew_airTime)}, "
+                  f"rew_base_contact:{torch.sum(rew_base_contact)}")
+            print(f"        total_rewards:{torch.sum(self.rew_buf)}")
 
         # log episode rewar d sums
         self.episode_sums["lin_vel_x"] += rew_lin_vel_x
@@ -409,7 +411,7 @@ class Vehicle(VecTask):
         # self.actions=torch.zeros(64, 25, dtype=torch.float32, device="cuda:0")
         for i in self.wheel_dof_index:
             self.actions[:, i]*=5
-        # print(self.actions.detach().cpu().numpy())
+        # print(self.actions.detach().cpu().numpy()[0])
         # 一次控制多步运动
         for i in range(self.decimation):
             torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -80,80)     #TODO:急需修改

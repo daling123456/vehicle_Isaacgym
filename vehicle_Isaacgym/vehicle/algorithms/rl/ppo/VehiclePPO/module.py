@@ -37,14 +37,16 @@ class ActorCritic(nn.Module):
     def forward(self):
         raise NotImplementedError
 
-    def act(self, observations):
+    def act(self, observations, obs_history):
         action_latent= self.actor(observations)
-        suspend_latent=self.actor.get_suspend_latent(action_latent[:8], obs_history)
+        history_latent=self.actor.get_history_encoding(obs_history)
 
-        steer_latent=self.actor.get_steer_latent(action_latent[8:])
-        obs=torch.cat((suspend_latent, steer_latent), dim=1)
-        actions_mean = self.actor(obs)
-        print(actions_mean.detach().cpu().numpy()[0])
+        suspend_latent=self.actor.get_suspend_latent(action_latent[:,:8], history_latent)
+
+        steer_latent=self.actor.get_steer_latent(action_latent[:,8:])
+        actions_mean=torch.cat((suspend_latent, steer_latent), dim=1)
+        # actions_mean = self.actor(obs)
+        # print(actions_mean.detach().cpu().numpy()[0])
 
         covariance = torch.diag(self.log_std.exp() * self.log_std.exp())
         distribution = MultivariateNormal(actions_mean, scale_tril=covariance)
@@ -61,8 +63,19 @@ class ActorCritic(nn.Module):
         actions_mean = self.actor(observations)
         return actions_mean
 
-    def evaluate(self, observations, actions):
-        actions_mean = self.actor(observations)
+    def evaluate(self, observations, actions, obs_history):
+        # print(observations.shape)
+        action_latent = self.actor(observations)
+        history_latent = self.actor.get_history_encoding(obs_history).float()
+        mean_history_latent=history_latent.mean(dim=0)
+        history_latent=mean_history_latent.unsqueeze(0)
+        history_latent=history_latent.repeat(observations.shape[0],1)
+
+        suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
+
+        steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
+        actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
+        # actions_mean = self.actor(observations)
 
         covariance = torch.diag(self.log_std.exp() * self.log_std.exp())
         distribution = MultivariateNormal(actions_mean, scale_tril=covariance)
@@ -105,9 +118,10 @@ class MLPEncode(nn.Module):
         self.small_init=small_init
         self.tsteps=model_cfg.actor.tsteps
 
-        self.base_obs_size=self.obs_dim
+        self.base_obs_size=self.obs_dim+1
         self.history_length=self.tsteps
         self.state_history_dim=self.base_obs_size * self.history_length
+        self.statehistory_encoder=model_cfg.actor.statehistory_encoder
 
         self.activation_fn=activation_fn
         self.output_activation_fn=output_activation_fn
@@ -120,7 +134,7 @@ class MLPEncode(nn.Module):
             # raise IOError("Not implemented self.geom_dim")
             print("Not implemented self.vision_dim")
         if self.state_history_dim > 0:
-            self.state_history_encoder = StateHistoryEncoder(activation_fn, self.tsteps, self.state_history_dim, history_latent_dim)
+            self.state_history_encoder = StateHistoryEncoder(activation_fn, self.tsteps, self.state_history_dim, history_latent_dim, self.statehistory_encoder)
             # self.init_weights(self.s_encoder, scale_encoder)
 
         else:
@@ -182,7 +196,8 @@ class MLPEncode(nn.Module):
     def get_history_encoding(self,obs_history):
         # hlen = self.base_obs_size * self.history_length
         # raw_obs = obs[:, : hlen]
-        obs_history=torch.reshape(obs_history, [obs_history.size(0), -1])
+        obs_history=torch.transpose(obs_history, 0, 1)
+        # obs_history=torch.reshape(obs_history, [obs_history.size(0), -1])
         history_latent=self.state_history_encoder(obs_history)
         return history_latent
 
@@ -195,8 +210,9 @@ class MLPEncode(nn.Module):
         return steer_latent
 
     def get_suspend_latent(self, x, y):
-        y=self.get_history_encoding(y)
-        input=torch.cat(x, y)
+        # y=self.get_history_encoding(y)
+        # print(x.shape,y.shape)
+        input=torch.cat((x, y), dim=1)
         suspend_latent=self.suspension_mlp(input)
         return suspend_latent
 
@@ -236,32 +252,40 @@ class MLP(nn.Module):
 
 
 class StateHistoryEncoder(nn.Module):
-    def __init__(self, activation_fn, tsteps, input_size, output_size):
+    def __init__(self, activation_fn, tsteps, input_size, output_size, statehistory_encoder):
         super(StateHistoryEncoder, self).__init__()
         self.activation_fn=get_activation(activation_fn)
         self.tsteps=tsteps
-        self.input_shape= input_size* tsteps
+        # self.input_shape= input_size* tsteps
         self.output_shape=output_size
 
-        if tsteps == 50:
-            self.encoder = nn.Sequential(
-                nn.Linear(input_size, 32), self.activation_fn()
-            )
-            self.conv_layers = nn.Sequential(
-                nn.Conv1d(in_channels=32, out_channels=32, kernel_size=4, stride=2), nn.LeakyReLU(),
-                nn.Conv1d(in_channels=32, out_channels=32, kernel_size=2, stride=1), nn.LeakyReLU(),
-                nn.Flatten())
-            self.linear_output = nn.Sequential(
-                nn.Linear(32 * 3, output_size), self.activation_fn()
-            )
-        else:
-            raise NotImplementedError()
+        if statehistory_encoder=="MPL":
+            self.encoder=nn.Sequential(nn.Linear(input_size, 256), self.activation_fn(),
+                                       nn.Linear(256,512), self.activation_fn(),
+                                       nn.Linear(512, output_size), self.activation_fn())
+
+        if statehistory_encoder=="CNN":
+            if tsteps == 50:
+                self.encoder = nn.Sequential(
+                    nn.Linear(input_size, 32), self.activation_fn()
+                )
+                self.conv_layers = nn.Sequential(
+                    nn.Conv1d(in_channels=50, out_channels=32, kernel_size=8, stride=4), nn.LeakyReLU(),
+                    nn.Conv1d(in_channels=32, out_channels=32, kernel_size=5, stride=1), nn.LeakyReLU(),
+                    nn.Conv1d(in_channels=32, out_channels=32, kernel_size=5, stride=1), nn.LeakyReLU(),
+                    nn.Flatten())
+                self.linear_output = nn.Sequential(
+                    nn.Linear(1728, output_size), self.activation_fn()
+                )
+            else:
+                raise NotImplementedError()
 
     def forward(self, obs):
         bs=obs.shape[0]
         T=self.tsteps
-        projection=self.encoder(obs.reshape(bs*T, -1))
-        output=self.conv_layers(projection.reshape([bs, -1, T]))
+        # projection=self.encoder(obs.reshape(bs*T, -1))
+        # projection = self.encoder(obs)
+        output=self.conv_layers(obs)
         output=self.linear_output(output)
         return output
 

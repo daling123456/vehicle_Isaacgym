@@ -4,7 +4,7 @@ name: Vehicle
 physics_engine: 'physx'
 
 env:
-  numEnvs: 64
+  numEnvs: ${num_envs}
   numObservations: 227
   numActions: 25
   envSpacing: 5.  # [m]
@@ -106,6 +106,8 @@ env:
     basecontactRewardScale: -0.0000025
     wheelStumbleRewardScale: -0. #-2.0
     actionRateRewardScale: -0.01
+
+    printreward: ${....printreward}
     # cosmetics
     hipRewardScale: -0. #25
 

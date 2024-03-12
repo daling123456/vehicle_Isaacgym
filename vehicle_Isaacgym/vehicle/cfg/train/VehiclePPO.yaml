@@ -19,7 +19,7 @@ policy: # only works for MlpPolicy right now
       suspension_hidden_shape: [16, 32]
       steer_hidden_shape: [16, 32]
       vision_dim: 0
-      obs_dim: 10    #TODO:
+      obs_dim: 226    #TODO:
       history_latent_dim: 8
       vision_latent_dim: 8
       suspension_latten_dim: 8
@@ -27,6 +27,7 @@ policy: # only works for MlpPolicy right now
       suspension_output_dim: 12
       steer_output_dim: 13
       tsteps: 50
+      statehistory_encoder: CNN
 
 
 learn:

@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
 
+import numpy as np
 from isaacgym import gymapi
 from isaacgym import gymtorch
 
@@ -148,6 +149,7 @@ class Vehicle(VecTask):
             self._create_ground_plane()
         elif terrain_type=="trimesh":
             self._create_trimesh()
+            self.custom_origins=True
 
         self._create_envs(self.num_envs, self.cfg['env']['envSpacing'], int(np.sqrt(self.num_envs)))
 
@@ -160,12 +162,19 @@ class Vehicle(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_trimesh(self):
-        self.terrain=Terrain()
+        self.terrain=Terrain(self.cfg["env"]["terrain"], num_robots=self.num_envs)
         tm_params = gymapi.TriangleMeshParams()
-        tm_params.nb_vertices=self.terrain.vertices.shape[0]
-        tm_params.nb_triangles=self.terrain.triangles.shape[0]
+        tm_params.nb_vertices = self.terrain.vertices.shape[0]
+        tm_params.nb_triangles = self.terrain.triangles.shape[0]
+        tm_params.transform.p.x = -self.terrain.border_size
+        tm_params.transform.p.y = -self.terrain.border_size
+        tm_params.transform.p.z = 0.0
+        tm_params.static_friction = self.cfg["env"]["terrain"]["staticFriction"]
+        tm_params.dynamic_friction = self.cfg["env"]["terrain"]["dynamicFriction"]
+        tm_params.restitution = self.cfg["env"]["terrain"]["restitution"]
 
-        # self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C', tm_params))
+        self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)
+        self.heightsamples=torch.tensor(self.terrain.heightsamples).view(self.terrain.total_rows, self.terrain.total_cols).to(self.device)
 
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -323,7 +332,7 @@ class Vehicle(VecTask):
 
     def compute_observations(self):
         self.measured_heights=self.get_heights()
-        heights=torch.clip(self.root_states[:,2].unsqueeze(-1)-0.5-self.measured_heights, -1, 1.) * self.height_meas_scale
+        heights=torch.clip(self.root_states[:,2].unsqueeze(1)-0.5-self.measured_heights, -1, 1.) * self.height_meas_scale
         self.obs_buf=torch.cat((self.base_lin_vel*self.lin_vel_scale,
                                 self.base_ang_vel*self.ang_vel_scale,
                                 self.projected_gravity,
@@ -404,8 +413,8 @@ class Vehicle(VecTask):
 
     def pre_physics_step(self, actions):
         self.actions=actions.clone().to(self.device)
-        actions=torch.max(torch.min(actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
-        self.actions[:,self.slider_index-1]=0.0
+        # actions=torch.max(torch.min(actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
+        self.actions[:,self.slider_index-1]=0.0     #将中间轴的运动设置为0
         # for i in self.fl_lift1_index:
         #     self.actions[:, i]= -self.actions[:, i-1]
         # self.actions=torch.zeros(64, 25, dtype=torch.float32, device="cuda:0")
@@ -508,7 +517,7 @@ class Vehicle(VecTask):
 
 
     def get_heights(self, env_ids=None): #TODO: not finish
-        if self.cfg['env']['terrain']['terrainType'] == "plane":
+        if self.cfg['env']['terrain']['terrainType'] == "trimesh":
             return torch.zeros(self.num_envs, self.num_height_points, device=self.device, requires_grad=False)
         elif self.cfg["env"]["terrain"]["terrainType"] == 'none':
             raise NameError("Can't measure height with terrain type 'none'")
@@ -536,8 +545,130 @@ class Vehicle(VecTask):
         self.gym.destroy_sim(self.sim)
 
 
+from isaacgym.terrain_utils import *
 class Terrain():
-    pass
+    def __init__(self, cfg, num_robots):
+        self.horizontal_scale=0.1
+        self.border_size = 20
+        self.vertical_scale=0.005
+        self.env_length = cfg["mapLength"]
+        self.env_width = cfg["mapWidth"]
+        self.proportions=[np.sum(cfg["terrainProportions"][:i+1]) for i in range(len(cfg['terrainProportions']))]
+
+        self.env_rows=cfg["numLevels"]
+        self.env_cols=cfg["numTerrains"]
+        self.num_maps= self.env_rows * self.env_cols
+        self.env_origins=np.zeros((self.env_rows, self.env_cols, 3))
+
+        self.width_per_env_pixels= int(self.env_width / self.horizontal_scale)
+        self.length_per_env_pixels= int(self.env_length/ self.horizontal_scale)
+
+        self.border = int(self.border_size/self.horizontal_scale)
+        self.total_cols=int(self.env_cols*self.width_per_env_pixels)+2*self.border
+        self.total_rows=int(self.env_rows*self.width_per_env_pixels)+2*self.border
+
+        self.height_field_raw=np.zeros((self.total_rows, self.total_cols), dtype=np.int16)
+        if cfg["curriculum"]:
+            self.curiculum(num_robots, num_terrains=self.env_cols, num_levels=self.env_rows)
+        else:
+            self.randomized_terrain()
+
+        self.heightsamples=self.height_field_raw
+        self.vertices, self.triangles = convert_heightfield_to_trimesh(self.height_field_raw, self.horizontal_scale, self.vertical_scale, cfg["slopeTreshold"])
+
+
+    def randomized_terrain(self):
+        for k in range(self.num_maps):
+            (i, j)= np.unravel_index(k, (self.env_rows, self.env_cols))
+
+            start_x=self.border+i * self.length_per_env_pixels
+            end_x=self.border+(i+1) * self.length_per_env_pixels
+            start_y=self.border+j * self.length_per_env_pixels
+            end_y=self.border+(j+1) * self.length_per_env_pixels
+
+            terrain=SubTerrain(width=self.width_per_env_pixels,
+                               length=self.width_per_env_pixels,
+                               vertical_scale=self.vertical_scale,
+                               horizontal_scale=self.horizontal_scale)
+
+            choice=np.random.uniform(0,1)
+
+            if choice<0.1:
+                if np.random.choice([0,1]):
+                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
+                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step=0.05, downsampled_scale=0.2)
+                else:
+                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
+            elif choice<0.6:
+                step_height = np.random.choice([-0.15, 0.15])
+                pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
+            elif choice<1:
+                discrete_obstacles_terrain(terrain, 0.15, 1., 2., 40, platform_size=3.)
+
+            self.height_field_raw[start_x:end_x, start_y:end_y] = terrain.height_field_raw
+
+            env_origin_x=(i+0.5)*self.env_length
+            env_origin_y=(j+0.5)*self.env_width
+            x1=int((self.env_length/2.-1)/self.horizontal_scale)
+            x2=int((self.env_length/2+1)/self.horizontal_scale)
+            y1 = int((self.env_width / 2. - 1) / self.horizontal_scale)
+            y2 = int((self.env_width / 2. + 1) / self.horizontal_scale)
+            env_origin_z=np.max(terrain.height_field_raw[x1:x2,y1:y2])*self.vertical_scale
+            self.env_origins[i,j]=[env_origin_x, env_origin_y, env_origin_z]
+
+    def curiculum(self, num_robots, num_terrains, num_levels):
+        num_robots_per_map = int(num_robots/ num_terrains)
+        left_over=num_robots % num_terrains
+        idx=0
+        for j in range(num_terrains):
+            for i in range(num_levels):
+                terrain=SubTerrain("terrain", width=self.width_per_env_pixels, length=self.width_per_env_pixels,
+                                   vertical_scale=self.vertical_scale, horizontal_scale=self.horizontal_scale)
+                difficulty=i/num_levels
+                choice=j/num_terrains
+                slope=difficulty*0.4
+                step_height=0.05+0.175*difficulty
+                discrete_obstacles_height=0.025+difficulty*0.15
+                stepping_stones_size=2-1.8*difficulty
+
+                if choice<self.proportions[0]:
+                    if choice<0.05:
+                        slope*=-1
+                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
+                elif choice<self.proportions[1]:
+                    if choice<0.15:
+                        slope*=-1
+                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
+                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step= 0.025, downsampled_scale=0.2)
+                elif choice<self.proportions[3]:
+                    if choice<self.proportions[2]:
+                        step_height*=-1
+                    pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
+                elif choice < self.proportions[4]:
+                    discrete_obstacles_terrain(terrain, discrete_obstacles_height, 1., 2., 40, platform_size=3.)
+                else:
+                    stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=0.1, max_height=0.,
+                                            platform_size=3.)
+
+                start_x=self.border+i * self.length_per_env_pixels
+                end_x=self.border+(i+1) * self.length_per_env_pixels
+                start_y=self.border+j * self.length_per_env_pixels
+                end_y=self.border+(j+1) * self.length_per_env_pixels
+                self.height_field_raw[start_x:end_x, start_y:end_y]=terrain.height_field_raw
+
+                robots_in_map = num_robots_per_map
+                if j < left_over:
+                    robots_in_map+=1
+
+                env_origin_x=(i+0.5) * self.env_length
+                env_origin_y=(j+0.5) * self.env_width
+
+                x1= int((self.env_length/2-1)/self.horizontal_scale)
+                x2= int((self.env_length/2+1)/self.horizontal_scale)
+                y1= int((self.env_width/2-1)/self.horizontal_scale)
+                y2= int((self.env_width/2+1)/self.horizontal_scale)
+                env_origin_z=np.max(terrain.height_field_raw[x1:x2, y1:y2])* self.vertical_scale
+                self.env_origins[i,j] = [env_origin_x, env_origin_y, env_origin_z]
 
 
 

@@ -51,7 +51,7 @@ def load_assets(sim):
     asset_options=gymapi.AssetOptions()
     asset_options.armature = 0.0
     asset_options.flip_visual_attachments = True
-    asset_options.collapse_fixed_joints=True
+    # asset_options.collapse_fixed_joints=True
     # asset_options.fix_base_link = True
     # asset_options.use_mesh_materials = True
     asset_options.disable_gravity=False
@@ -158,7 +158,7 @@ def apply_actor_velocity( actorhandle,):
     vel_targets = np.zeros(25).astype('f')
     for i in wheel_index:
         vel_targets[i] = -0.2
-    print(vel_targets)
+    # print(vel_targets)
     gym.set_actor_dof_velocity_targets(env, actorhandle, vel_targets)
 
 
@@ -173,6 +173,22 @@ def set_dof_states():
     gym.set_actor_dof_states(env, actor_handle, dof_states, gymapi.STATE_ALL)
 
 
+def camera_sensors(env, body_handle, locs, target_locs, angle, image_width, image_height):
+    camera_props=gymapi.CameraProperties()
+    camera_props.width=image_width
+    camera_props.height=image_height
+    camera_handle=gym.create_camera_sensor(env, camera_props)
+
+    # gym.set_camera_location(camera_handle, env, gymapi.Vec3(locs[0], locs[1], locs[2]), gymapi.Vec3(target_locs[0], target_locs[1], target_locs[2]))
+    transform= gymapi.Transform()
+    transform.p = gymapi.Vec3(locs[0], locs[1], locs[2])
+    # transform.p = gymapi.Vec3(0, 0, 0)
+    transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), np.radians(angle))
+    # gym.set_camera_transform(camera_handle, env, transform)
+    gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
+
+    gym.render_all_camera_sensors(sim)
+    return  camera_handle
 
 ######### Tensor 操作 ###########
 def acquire_root_tensor():
@@ -205,7 +221,7 @@ def acquire_contact_force():
 def acquire_rigid_body_state():
     _rb_states=gym.acquire_rigid_body_state_tensor(sim)
     rb_states=gymtorch.wrap_tensor(_rb_states)
-    print(rb_states.cpu().numpy())
+    # print(rb_states.cpu().numpy())
 
 def set_root_tensor(root_positions, ):
     ######失败########
@@ -298,7 +314,7 @@ def wheel_moving(actorhandle, dof_states_moving_targets, target_vel):
     # print(dof_states_moving_targets)
     # set_dof_pos_target(actorhandle, dof_states_moving_targets)
     # set_dof_force_tensor(actorhandle, dof_states_moving_targets)
-    print(dof_states_moving_targets)
+    # print(dof_states_moving_targets)
     # set_dof_target_velocity(actorhandle, dof_states_moving_targets)
 
 
@@ -432,6 +448,17 @@ if __name__=="__main__":
     env=envs[0]
     actor_handle=actor_handles[0]
     num_bodies=gym.get_actor_rigid_body_count(env, actor_handle)
+
+    camera_actor_handle=gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
+    print("camera_handle:", camera_actor_handle)
+    loc=[0, 0, 0]
+    target_loc=[0, 1, 0]
+    angle=torch.tensor(90)
+    image_width=128
+    image_height=128
+
+    camera_handle=camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle, image_width=image_width, image_height=image_height)
+
     num_joints=gym.get_actor_joint_count(env, actor_handle)
     num_dofs=gym.get_actor_dof_count(env, actor_handle)
     print(f"-----num_bodies:{num_bodies},------num_joints:{num_joints},------num_dofs:{num_dofs}--------")
@@ -494,6 +521,18 @@ if __name__=="__main__":
         gym.draw_viewer(viewer, sim, True)      #查看器中渲染最新的快照
         gym.sync_frame_time(sim)        #视觉更新频率与实时同步
 
+        color_image=gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+        # print("----------------------------")
+        # print(color_image.shape)
+        image_data=np.frombuffer(color_image, dtype=np.uint8)
+        image=image_data.reshape((image_height, image_width, 4))
+        import matplotlib.pyplot as plt
+        import cv2
+
+        # 显示图像
+        plt.imshow(image)
+        plt.axis('off')  # 关闭坐标轴
+        # plt.show()
         # 刷新root——tensor
         # step+=1
         # if step%100==0:

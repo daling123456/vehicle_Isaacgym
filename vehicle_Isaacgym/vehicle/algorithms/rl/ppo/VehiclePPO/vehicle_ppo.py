@@ -67,8 +67,8 @@ class VEHICLEPPO:
             while True:
 
                 with torch.no_grad():
-
-                    actions=self.actor_critic.act_inference(current_obs)
+                    self.obs_history = self.storage.states
+                    actions=self.actor_critic.act_inference(current_obs, self.obs_history)
                     # print(actions)
                     next_obs, rewards, dones, infos=self.vec_env.step(actions)
                     # print(torch.sum(rewards))

@@ -15,7 +15,7 @@ from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehicleTerrainPPO.vehicleterrain
 
 def process_sarl(cfg, env, cfg_train, cfg_task):
 
-    logdir = cfg.logdir + cfg.task_name + '/' + cfg.algo_name + '/' +"11_seed{}".format(cfg["seed"])
+    logdir = cfg.logdir + cfg.task_name + '/' + cfg.algo_name + '/' +"1_seed{}".format(cfg["seed"])
     algorithm = eval(cfg.algo_name.upper())(
         vec_env=env,
         cfg_train=cfg_train,

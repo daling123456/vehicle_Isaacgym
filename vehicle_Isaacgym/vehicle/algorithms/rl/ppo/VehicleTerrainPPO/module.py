@@ -88,7 +88,7 @@ class ActorCritic(nn.Module):
 
     def evaluate(self, observations, actions):
         actions_mean = self.actor(observations)
-        print(observations.shape)
+        # print(observations.shape)
 
         covariance = torch.diag(self.log_std.exp() * self.log_std.exp())
         distribution = MultivariateNormal(actions_mean, scale_tril=covariance)

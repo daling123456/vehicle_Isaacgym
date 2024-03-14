@@ -41,6 +41,7 @@ class Vehicle(VecTask):
         self.cfg = cfg
         self.custom_origins = False
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.height_samples=None
 
 
         # normalization
@@ -174,7 +175,7 @@ class Vehicle(VecTask):
         tm_params.restitution = self.cfg["env"]["terrain"]["restitution"]
 
         self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)
-        self.heightsamples=torch.tensor(self.terrain.heightsamples).view(self.terrain.total_rows, self.terrain.total_cols).to(self.device)
+        self.height_samples=torch.tensor(self.terrain.heightsamples).view(self.terrain.total_rows, self.terrain.total_cols).to(self.device)
 
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -217,9 +218,10 @@ class Vehicle(VecTask):
         self.slider_index=0
         #env origins
         self.env_origins=torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
-        if not self.curriculum: self.cfg['env']['terrain']['maxInitMapLevel']=self.cfg['env']['terrain']['numLevels']-1
+        if not self.curriculum: self.cfg['env']['terrain']['maxInitMapLevel']=self.cfg['env']['terrain']['numLevels']-1     #出生点差异由此导致
         self.terrain_levels=torch.randint(0, self.cfg['env']['terrain']["maxInitMapLevel"]+1, (self.num_envs,), device=self.device)
         self.terrain_types = torch.randint(0, self.cfg["env"]["terrain"]["numTerrains"], (self.num_envs,), device=self.device)
+
         if self.custom_origins:
             self.terrain_origins=torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             spacing=0.
@@ -230,7 +232,7 @@ class Vehicle(VecTask):
         for i in range(self.num_envs):
             env_handle=self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
             if self.custom_origins:
-                self.env_origins[i] = self.terrain_origins[self.terrain_levels[i], self.terrain_types[i]]
+                self.env_origins[i] = self.terrain_origins[self.terrain_levels[i], self.terrain_types[i]]       #从这个地方导致的出生点差异
                 pos=self.env_origins[i].clone()
                 pos[:2]+=torch_rand_float(-1, 1., (2, 1), device=self.device).squeeze(1)
                 start_pose.p=gymapi.Vec3(*pos)
@@ -425,6 +427,7 @@ class Vehicle(VecTask):
         for i in range(self.decimation):
             torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -80,80)     #TODO:急需修改
             self.torques = torques.view(self.torques.shape)
+            # self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.simulate(self.sim)
@@ -470,9 +473,10 @@ class Vehicle(VecTask):
         self.last_dof_vel[:]=self.dof_vel[:]
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
+            print("-----------------------")
             self.gym.clear_lines(self.viewer)
             self.gym.refresh_rigid_body_state_tensor(self.sim)
-            # sphere_geom=gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+            sphere_geom=gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
             for i in range(self.num_envs):
                 base_pos = (self.root_states[i, :3]).cpu().numpy()
                 heights = self.measured_heights[i].cpu().numpy()
@@ -482,7 +486,7 @@ class Vehicle(VecTask):
                     y = height_points[j, 1] + base_pos[1]
                     z = heights[j]
                     sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
-                    # gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 
     def _get_noise_scale_vec(self, cfg):
@@ -517,7 +521,7 @@ class Vehicle(VecTask):
 
 
     def get_heights(self, env_ids=None): #TODO: not finish
-        if self.cfg['env']['terrain']['terrainType'] == "trimesh":
+        if self.cfg['env']['terrain']['terrainType'] == "plane":
             return torch.zeros(self.num_envs, self.num_height_points, device=self.device, requires_grad=False)
         elif self.cfg["env"]["terrain"]["terrainType"] == 'none':
             raise NameError("Can't measure height with terrain type 'none'")
@@ -528,9 +532,21 @@ class Vehicle(VecTask):
             points=quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[:, :3]).unsqueeze(1)
 
         points += self.terrain.border_size
-        points=(points)
+        points=(points/self.terrain.horizontal_scale).long()
+        px = points[:, :, 0].view(-1)
+        py = points[:, :, 1].view(-1)
+        px = torch.clip(px, 0, self.height_samples.shape[0] - 2)
+        py = torch.clip(py, 0, self.height_samples.shape[1] - 2)
 
-    def stand_by(self):
+        heights1 = self.height_samples[px, py]
+
+        heights2 = self.height_samples[px + 1, py + 1]
+        heights = torch.min(heights1, heights2)
+
+        return heights.view(self.num_envs, -1) * self.terrain.vertical_scale
+
+
+def stand_by(self):
         while not self.gym.query_viewer_has_closed(self.viewer):
             # step the physics
             self.gym.simulate(self.sim)
@@ -553,7 +569,7 @@ class Terrain():
         self.vertical_scale=0.005
         self.env_length = cfg["mapLength"]
         self.env_width = cfg["mapWidth"]
-        self.proportions=[np.sum(cfg["terrainProportions"][:i+1]) for i in range(len(cfg['terrainProportions']))]
+        self.proportions=[np.sum(cfg["terrainProportions"][:i+1]) for i in range(len(cfg['terrainProportions']))]   #[0.1, 0.2, 0.55, 0.8, 1.0]
 
         self.env_rows=cfg["numLevels"]
         self.env_cols=cfg["numTerrains"]
@@ -616,10 +632,10 @@ class Terrain():
             env_origin_z=np.max(terrain.height_field_raw[x1:x2,y1:y2])*self.vertical_scale
             self.env_origins[i,j]=[env_origin_x, env_origin_y, env_origin_z]
 
+
     def curiculum(self, num_robots, num_terrains, num_levels):
         num_robots_per_map = int(num_robots/ num_terrains)
         left_over=num_robots % num_terrains
-        idx=0
         for j in range(num_terrains):
             for i in range(num_levels):
                 terrain=SubTerrain("terrain", width=self.width_per_env_pixels, length=self.width_per_env_pixels,
@@ -629,6 +645,7 @@ class Terrain():
                 slope=difficulty*0.4
                 step_height=0.05+0.175*difficulty
                 discrete_obstacles_height=0.025+difficulty*0.15
+                amplitude=0.1+difficulty*0.5
                 stepping_stones_size=2-1.8*difficulty
 
                 if choice<self.proportions[0]:
@@ -647,8 +664,9 @@ class Terrain():
                 elif choice < self.proportions[4]:
                     discrete_obstacles_terrain(terrain, discrete_obstacles_height, 1., 2., 40, platform_size=3.)
                 else:
-                    stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=0.1, max_height=0.,
-                                            platform_size=3.)
+                    wave_terrain(terrain, num_waves=1, amplitude=amplitude)
+                    # stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=0.1, max_height=0.,
+                    #                         platform_size=3.)
 
                 start_x=self.border+i * self.length_per_env_pixels
                 end_x=self.border+(i+1) * self.length_per_env_pixels

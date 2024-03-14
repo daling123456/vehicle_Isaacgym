@@ -11,7 +11,7 @@ env:
   enableDebugVis: False
 
   terrain:
-    terrainType: trimesh # none, plane, or trimesh
+    terrainType: ${....terrain_type} # none, plane, or trimesh
     staticFriction: 1.0  # [-]
     dynamicFriction: 1.0  # [-]
     restitution: 0.        # [-]
@@ -23,7 +23,7 @@ env:
     numLevels: 10
     numTerrains: 20
     # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
-    terrainProportions: [0.1, 0.1, 0.35, 0.25, 0.2]
+    terrainProportions: [0.1, 0.1, 0.2, 0.2, 0.2, 0.2]
     # tri mesh only:
     slopeTreshold: 0.5
 

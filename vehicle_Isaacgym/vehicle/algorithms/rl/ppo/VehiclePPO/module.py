@@ -42,6 +42,7 @@ class ActorCritic(nn.Module):
         history_latent=self.actor.get_history_encoding(obs_history)
 
         suspend_latent=self.actor.get_suspend_latent(action_latent[:,:8], history_latent)
+        # print(suspend_latent)
 
         steer_latent=self.actor.get_steer_latent(action_latent[:,8:])
         actions_mean=torch.cat((suspend_latent, steer_latent), dim=1)
@@ -59,8 +60,14 @@ class ActorCritic(nn.Module):
 
         return actions.detach(), actions_log_prob.detach(), value.detach(), actions_mean.detach(), self.log_std.repeat(actions_mean.shape[0], 1).detach()
 
-    def act_inference(self, observations):
-        actions_mean = self.actor(observations)
+    def act_inference(self, observations, obs_history):
+        action_latent = self.actor(observations)
+        history_latent = self.actor.get_history_encoding(obs_history)
+
+        suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
+
+        steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
+        actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
         return actions_mean
 
     def evaluate(self, observations, actions, obs_history):

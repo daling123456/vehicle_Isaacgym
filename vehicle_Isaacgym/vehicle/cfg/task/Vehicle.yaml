@@ -94,15 +94,15 @@ env:
     allowlift1Contacts: true
     # rewards
     terminalReward: 0.0
-    linearVelocityXYRewardScale: 1.0
-    linearVelocityZRewardScale: -4.0
+    linearVelocityXYRewardScale: 0.1
+    linearVelocityZRewardScale: -0.05
     angularVelocityXYRewardScale: -0.05
     angularVelocityZRewardScale: 0.01
-    orientationRewardScale: -10. #-1.
+    orientationRewardScale: -1. #-1.
     torqueRewardScale: -0.00002 # -0.000025
     jointAccRewardScale: -0.0005 # -0.0025
     baseHeightRewardScale: -0.0 #5
-    wheelAirTimeRewardScale:  -0.01
+    wheelAirTimeRewardScale:  -0.1
     basecontactRewardScale: -0.0000025
     wheelStumbleRewardScale: -0. #-2.0
     actionRateRewardScale: -0.01

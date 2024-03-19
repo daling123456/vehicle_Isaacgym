@@ -453,11 +453,17 @@ if __name__=="__main__":
     print("camera_handle:", camera_actor_handle)
     loc=[0, 0, 0]
     target_loc=[0, 1, 0]
-    angle=torch.tensor(90)
-    image_width=128
-    image_height=128
+    angle=torch.tensor(0)
+    image_width=1280
+    image_height=1280
 
     camera_handle=camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle, image_width=image_width, image_height=image_height)
+
+    import cv2
+    import matplotlib.pyplot as plt
+    fourcc=cv2.VideoWriter_fourcc(*'mp4v')
+    out=cv2.VideoWriter('output.mp4', fourcc, 30.0, (image_width, image_height))
+
 
     num_joints=gym.get_actor_joint_count(env, actor_handle)
     num_dofs=gym.get_actor_dof_count(env, actor_handle)
@@ -521,15 +527,23 @@ if __name__=="__main__":
         gym.draw_viewer(viewer, sim, True)      #查看器中渲染最新的快照
         gym.sync_frame_time(sim)        #视觉更新频率与实时同步
 
+        gym.render_all_camera_sensors(sim)
+
+        # print(viewer)
+
         color_image=gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
         # print("----------------------------")
         # print(color_image.shape)
         image_data=np.frombuffer(color_image, dtype=np.uint8)
         image=image_data.reshape((image_height, image_width, 4))
-        import matplotlib.pyplot as plt
-        import cv2
+        image = image.astype(np.uint8)  # 确保图像数据是uint8类型
+        if image.ndim == 3 and image.shape[2] == 4:  # 如果图像是RGBA格式的，转换为RGB
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        out.write(image)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-        # 显示图像
+            # 显示图像
         plt.imshow(image)
         plt.axis('off')  # 关闭坐标轴
         # plt.show()
@@ -592,5 +606,6 @@ if __name__=="__main__":
         # for evt in gym.query_viewer_action_events(viewer):
         #     if evt.action=="reset" and evt.value>0:
         #         gym.set_sim_rigid_body_states(sim, initial_state, gymapi.STATE_ALL)
+    out.release()
     gym.destroy_viewer(viewer)
     gym.destroy_sim(sim)

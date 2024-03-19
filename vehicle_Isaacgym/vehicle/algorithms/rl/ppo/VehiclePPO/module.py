@@ -148,7 +148,6 @@ class MLPEncode(nn.Module):
             # raise IOError("Not implemented self.geom_dim")
             print("Not implemented self.geom_dim")
 
-
         # creating the action encoder
         self.action_mlp=MLP(device, actor_hidden_shape, self.actor_input_size, self.actor_output_size, self.activation_fn, self.output_activation_fn, self.small_init)
         # modules = [nn.Linear(self.obs_dim+vision_latent_dim, actor_hidden_shape[0]), self.activation_fn()]

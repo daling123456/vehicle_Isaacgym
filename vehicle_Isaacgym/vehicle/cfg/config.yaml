@@ -29,6 +29,7 @@ force_render: True
 
 checkpoint: ''
 logdir: 'logs/'
+log: '1'
 
 defaults:
   - task: VehicleTerrain

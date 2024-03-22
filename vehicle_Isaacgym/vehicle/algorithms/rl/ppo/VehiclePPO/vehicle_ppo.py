@@ -3,6 +3,7 @@ import os.path
 import time
 
 import torch
+import cv2
 from gym.spaces import Space
 import torch.optim as optim
 import torch.nn as nn
@@ -92,6 +93,9 @@ class VEHICLEPPO:
                     current_obs.copy_(next_obs['obs'])
 
                     ep_infos.append(infos)
+
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
 
                 _, _, last_values, _, _=self.actor_critic.act(current_obs, self.obs_history)
                 stop=time.time()

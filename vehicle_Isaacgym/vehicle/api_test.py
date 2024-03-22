@@ -3,6 +3,7 @@ import numpy as np
 
 from isaacgym import gymapi
 from isaacgym import gymtorch
+from isaacgym.terrain_utils import *
 
 import torch
 Device="cuda:0"
@@ -43,6 +44,48 @@ def create_plane(sim):
     plane_params.dynamic_friction=5
     plane_params.restitution=0          #控制与地平面碰撞的弹性
     gym.add_ground(sim, plane_params)
+
+def create_terrain():
+    # create all available terrain types
+    num_terains = 8
+    terrain_width = 12.
+    terrain_length = 12.
+    horizontal_scale = 0.25  # [m]
+    vertical_scale = 0.005  # [m]
+    num_rows = int(terrain_width / horizontal_scale)
+    num_cols = int(terrain_length / horizontal_scale)
+    heightfield = np.zeros((num_terains * num_rows, num_cols), dtype=np.int16)
+
+    def new_sub_terrain(): return SubTerrain(width=num_rows, length=num_cols, vertical_scale=vertical_scale,
+                                             horizontal_scale=horizontal_scale)
+
+    heightfield[0:num_rows, :] = random_uniform_terrain(new_sub_terrain(), min_height=-0.2, max_height=0.2, step=0.2,
+                                                        downsampled_scale=0.5).height_field_raw
+    heightfield[num_rows:2 * num_rows, :] = sloped_terrain(new_sub_terrain(), slope=-0.5).height_field_raw
+    heightfield[2 * num_rows:3 * num_rows, :] = pyramid_sloped_terrain(new_sub_terrain(), slope=-0.5).height_field_raw
+    heightfield[3 * num_rows:4 * num_rows, :] = discrete_obstacles_terrain(new_sub_terrain(), max_height=0.5,
+                                                                           min_size=1., max_size=5.,
+                                                                           num_rects=20).height_field_raw
+    heightfield[4 * num_rows:5 * num_rows, :] = wave_terrain(new_sub_terrain(), num_waves=2.,
+                                                             amplitude=1.).height_field_raw
+    heightfield[5 * num_rows:6 * num_rows, :] = stairs_terrain(new_sub_terrain(), step_width=0.75,
+                                                               step_height=-0.5).height_field_raw
+    heightfield[6 * num_rows:7 * num_rows, :] = pyramid_stairs_terrain(new_sub_terrain(), step_width=0.75,
+                                                                       step_height=-0.5).height_field_raw
+    heightfield[7 * num_rows:8 * num_rows, :] = stepping_stones_terrain(new_sub_terrain(), stone_size=1.,
+                                                                        stone_distance=1., max_height=0.5,
+                                                                        platform_size=0.).height_field_raw
+
+    # add the terrain as a triangle mesh
+    vertices, triangles = convert_heightfield_to_trimesh(heightfield, horizontal_scale=horizontal_scale,
+                                                         vertical_scale=vertical_scale, slope_threshold=1.5)
+    tm_params = gymapi.TriangleMeshParams()
+    tm_params.nb_vertices = vertices.shape[0]
+    tm_params.nb_triangles = triangles.shape[0]
+    tm_params.transform.p.x = -1.
+    tm_params.transform.p.y = -1.
+    gym.add_triangle_mesh(sim, vertices.flatten(), triangles.flatten(), tm_params)
+
 def load_assets(sim):
     asset_root = "/home/mutong/RobotDoc/vehicle_Isaacgym/vehicle_Isaacgym/vehicle/assets"
     asset_file = "urdf/vehicle/cwego.urdf"
@@ -58,14 +101,13 @@ def load_assets(sim):
     # asset_options.replace_cylinder_with_capsule=True        #用胶囊替代圆柱体
     asset=gym.load_asset(sim,asset_root,asset_file,asset_options)
     return asset
-def env_actor_create(sim,asset):
+def env_actor_create(sim,asset, num_envs):
     spacing=6.0
-    envs_per_row = 1
+    envs_per_row = 8
     env_lower=gymapi.Vec3(-spacing, -spacing, -spacing)
     env_upper=gymapi.Vec3(spacing,spacing,spacing)
     envs=[]
     ActorHandles=[]
-    num_envs=1
     for i in range(num_envs):
         env=gym.create_env(sim, env_lower, env_upper, envs_per_row)            #create_env
         envs.append(env)
@@ -111,8 +153,8 @@ def set_dof_props(envs, ActorHandles):
         props=gym.get_actor_dof_properties(envs[j], ActorHandles[j],)
         print(props['driveMode'])
         props["driveMode"].fill(gymapi.DOF_MODE_POS)
-        props["stiffness"].fill(40000.0)
-        props["damping"].fill(2000.0)
+        props["stiffness"].fill(400000.0)
+        props["damping"].fill(20000.0)
         wheel_index, num_wheel = find_wheel_index()
         for i in wheel_index:
             props["driveMode"][i]=gymapi.DOF_MODE_VEL
@@ -183,7 +225,7 @@ def camera_sensors(env, body_handle, locs, target_locs, angle, image_width, imag
     transform= gymapi.Transform()
     transform.p = gymapi.Vec3(locs[0], locs[1], locs[2])
     # transform.p = gymapi.Vec3(0, 0, 0)
-    transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), np.radians(angle))
+    transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), np.radians(angle))
     # gym.set_camera_transform(camera_handle, env, transform)
     gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
 
@@ -352,6 +394,10 @@ def turn_around(actorhandle, dof_states_moving_targets, target_vel):
 def front_wheel_rise(actorhandle, dof_states_moving_targets,target_vel):
     to_limit1=wheel_rise("fl", actorhandle, dof_states_moving_targets, target_vel)
     to_limit2=wheel_rise("fr", actorhandle, dof_states_moving_targets, target_vel)
+    to_limit1 = wheel_rise("ml", actorhandle, dof_states_moving_targets, target_vel)
+    to_limit2 = wheel_rise("mr", actorhandle, dof_states_moving_targets, target_vel)
+    to_limit1 = wheel_rise("rl", actorhandle, dof_states_moving_targets, target_vel)
+    to_limit2 = wheel_rise("rr", actorhandle, dof_states_moving_targets, target_vel)
     to_limit=to_limit1 and to_limit2
     return to_limit
 
@@ -439,30 +485,33 @@ if __name__=="__main__":
     gym=gymapi.acquire_gym()
     sim=create_sim()
     create_plane(sim)
+    create_terrain()
     asset=load_assets(sim)
-    envs, actor_handles=env_actor_create(sim,asset)
+    envs, actor_handles=env_actor_create(sim,asset, num_envs=32)
     # initial_state = np.copy(gym.get_sim_rigid_body_states(sim, gymapi.STATE_ALL))
     viewer=create_viewer(sim)
     gym.prepare_sim(sim)
     ########计算bodies、joints、dofs的数量###########
-    env=envs[0]
-    actor_handle=actor_handles[0]
+    env=envs[10]
+    actor_handle=actor_handles[10]
     num_bodies=gym.get_actor_rigid_body_count(env, actor_handle)
+
+    # print(gym.get_actor_joint_transforms(env, actor_handle))
 
     camera_actor_handle=gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
     print("camera_handle:", camera_actor_handle)
-    loc=[0, 0, 0]
+    loc=[0, 0, 0.]
     target_loc=[0, 1, 0]
     angle=torch.tensor(0)
-    image_width=1280
-    image_height=1280
+    image_width=640
+    image_height=640
 
     camera_handle=camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle, image_width=image_width, image_height=image_height)
 
     import cv2
     import matplotlib.pyplot as plt
     fourcc=cv2.VideoWriter_fourcc(*'mp4v')
-    out=cv2.VideoWriter('output.mp4', fourcc, 30.0, (image_width, image_height))
+    out=cv2.VideoWriter('output5.mp4', fourcc, 30.0, (image_width, image_height))
 
 
     num_joints=gym.get_actor_joint_count(env, actor_handle)
@@ -539,7 +588,11 @@ if __name__=="__main__":
         image = image.astype(np.uint8)  # 确保图像数据是uint8类型
         if image.ndim == 3 and image.shape[2] == 4:  # 如果图像是RGBA格式的，转换为RGB
             image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-        out.write(image)
+        # out.write(image)
+        rgba_for_display = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+        cv2.imshow('Real-time Video', rgba_for_display)
+
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -569,7 +622,7 @@ if __name__=="__main__":
         # turn_around(actor_handle,positions_tensor,target_vel)
         # to_limit=slider_translate(props=props,actorhandle=actor_handle,dof_states_moving_targets=dof_states_moving_targets,target_vel=target_vel,)
         # to_limit=wheel_rise("fr",actorhandle=actor_handle, dof_states_moving_targets=dof_states_moving_targets, target_vel=target_vel,)
-        to_limit=front_wheel_rise(actor_handle, dof_states_moving_targets, target_vel)
+        # to_limit=front_wheel_rise(actor_handle, dof_states_moving_targets, target_vel)
 
         # wheel_moving(actorhandle=actor_handle, dof_states_moving_targets=velocity_tensor, target_vel=0.01)
 

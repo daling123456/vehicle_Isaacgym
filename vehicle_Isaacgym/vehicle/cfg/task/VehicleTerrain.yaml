@@ -4,14 +4,14 @@ name: VehicleTerrain
 physics_engine: 'physx'
 
 env:
-  numEnvs: 64
+  numEnvs: ${num_envs}
   numObservations: 227
   numActions: 25
   envSpacing: 5.  # [m]
   enableDebugVis: False
 
   terrain:
-    terrainType: plane # none, plane, or trimesh
+    terrainType: ${....terrain_type} # none, plane, or trimesh
     staticFriction: 1.0  # [-]
     dynamicFriction: 1.0  # [-]
     restitution: 0.        # [-]
@@ -23,12 +23,12 @@ env:
     numLevels: 10
     numTerrains: 20
     # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
-    terrainProportions: [0.1, 0.1, 0.35, 0.25, 0.2]
+    terrainProportions: [0.1, 0.1, 0.2, 0.2, 0.2, 0.2]
     # tri mesh only:
     slopeTreshold: 0.5
 
   baseInitState:
-    pos: [0.0, 0.0, 0.0] # x,y,z [m]
+    pos: [0.0, 0.0, 0.1] # x,y,z [m]
     rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
     vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
     vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
@@ -44,8 +44,8 @@ env:
 
   control:
     # PD Drive parameters:
-    stiffness: 25000.0  # [N*m/rad]
-    damping: 2000.0     # [N*m*s/rad]
+    stiffness: 5000.0  # [N*m/rad]
+    damping: 100.0     # [N*m*s/rad]
     # action scale: target angle = actionScale * action + defaultAngle
     actionScale: 0.5
     # decimation: Number of control action updates @ sim DT per policy DT
@@ -54,19 +54,19 @@ env:
   defaultJointAngles:  # = target angles when action = 0.0
     slider_joint: 0
 
-    fl_lift1_joint: 0
-    fr_lift1_joint: 0
-    rl_lift1_joint: 0
-    rr_lift1_joint: 0
-    ml_lift1_joint: 0
-    mr_lift1_joint: 0
+    fl_lift1_joint: 0.2
+    fr_lift1_joint: 0.2
+    rl_lift1_joint: 0.2
+    rr_lift1_joint: 0.2
+    ml_lift1_joint: 0.2
+    mr_lift1_joint: 0.2
 
-    fl_lift2_joint: 0
-    fr_lift2_joint: 0
-    rl_lift2_joint: 0
-    rr_lift2_joint: 0
-    ml_lift2_joint: 0
-    mr_lift2_joint: 0
+    fl_lift2_joint: -0.2
+    fr_lift2_joint: -0.2
+    rl_lift2_joint: -0.2
+    rr_lift2_joint: -0.2
+    ml_lift2_joint: -0.2
+    mr_lift2_joint: -0.2
 
     fl_steer_joint: 0
     fr_steer_joint: 0
@@ -94,18 +94,20 @@ env:
     allowlift1Contacts: true
     # rewards
     terminalReward: 0.0
-    linearVelocityXYRewardScale: 0.02
-    linearVelocityZRewardScale: -0.4
-    angularVelocityXYRewardScale: -0.01
-    angularVelocityZRewardScale: 0.01
-    orientationRewardScale: -0.2 #-1.
+    linearVelocityXYRewardScale: 0.1
+    linearVelocityZRewardScale: -0.05
+    angularVelocityXYRewardScale: -0.05
+    angularVelocityZRewardScale: 0.0
+    orientationRewardScale: -1 #-1.
     torqueRewardScale: -0.00002 # -0.000025
     jointAccRewardScale: -0.0005 # -0.0025
-    baseHeightRewardScale: -0.1 #5
-    wheelAirTimeRewardScale:  -0.0001
-    lift1CollisionRewardScale: -0.25
+    baseHeightRewardScale: 0 #5
+    wheelAirTimeRewardScale:  -0.1
+    basecontactRewardScale: -0.0000025
     wheelStumbleRewardScale: -0. #-2.0
     actionRateRewardScale: -0.01
+
+    printreward: ${....printreward}
     # cosmetics
     hipRewardScale: -0. #25
 
@@ -117,7 +119,7 @@ env:
     heightMeasurementScale: 5.0
 
     # noise
-    addNoise: true
+    addNoise: false
     noiseLevel: 1.0 # scales other values
     dofPositionNoise: 0.01
     dofVelocityNoise: 1.5
@@ -133,19 +135,20 @@ env:
     pushInterval_s: 15
 
     # episode length in seconds
-    episodeLength_s: 20
+    episodeLength_s: 100
 
   # viewer cam:
   viewer:
     refEnv: 0
     pos: [10, 10, 100]  # [m]
     lookat: [1., 1, 19]  # [m]
+    create_video: false
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
-  dt: 0.01
+  dt: 0.005
   substeps: 1
   up_axis: "z"
   use_gpu_pipeline: true

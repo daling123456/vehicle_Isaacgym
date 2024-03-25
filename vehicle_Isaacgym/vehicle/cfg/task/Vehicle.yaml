@@ -143,12 +143,18 @@ env:
     pos: [10, 10, 100]  # [m]
     lookat: [1., 1, 19]  # [m]
     create_video: true
+    camera_width: 640
+    camera_height: 640
+    enable_tensors: true
+    camera_pos: [0,0,0]
+    camera_axis: [0,1,0]
+    camera_angle: 10
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
-  dt: 0.01
+  dt: 0.005
   substeps: 1
   up_axis: "z"
   use_gpu_pipeline: true

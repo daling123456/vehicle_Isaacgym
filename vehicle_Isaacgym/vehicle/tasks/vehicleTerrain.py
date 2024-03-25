@@ -27,10 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
 
+import numpy as np
 from isaacgym import gymapi
 from isaacgym import gymtorch
 
 import torch
+import cv2
 
 from vehicle_Isaacgym.vehicle.tasks.base.vec_task import VecTask
 from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import *
@@ -40,6 +42,8 @@ class VehicleTerrain(VecTask):
         self.cfg = cfg
         self.custom_origins = False
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.height_samples=None
+        self.init_done=False
 
 
         # normalization
@@ -68,6 +72,7 @@ class VehicleTerrain(VecTask):
         self.base_height=self.cfg['env']['baseInitState']['pos'][2]
 
         # reward scales
+        self.print_reward=self.cfg['env']['learn']['printreward']
         self.rew_scales = {}
         self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"]
         self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"]
@@ -81,7 +86,7 @@ class VehicleTerrain(VecTask):
         self.rew_scales["air_time"] = self.cfg["env"]["learn"]["wheelAirTimeRewardScale"]
         self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
-
+        self.rew_scales['base_contact']= self.cfg['env']['learn']['basecontactRewardScale']
 
 
         #command ranges
@@ -89,6 +94,7 @@ class VehicleTerrain(VecTask):
         self.command_y_range = self.cfg["env"]["randomCommandVelocityRanges"]["linear_y"]
         self.command_yaw_range = self.cfg["env"]["randomCommandVelocityRanges"]["yaw"]
 
+        self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
 
         super().__init__(cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
@@ -110,10 +116,10 @@ class VehicleTerrain(VecTask):
 
 
         # init some data used later
-        self.action_lower_limit = torch.tensor([-0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3,
-                -0.5, -0.5, -0.7, -3, -0.7, -0.5, -0.5, -0.7, -3, -0.5, -0.5, -0.7, -3, ], device=self.device)
-        self.action_upper_limit = torch.tensor([0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3,
-                0.5, 0.5, 0.7, 3, 0.7, 0.5, 0.5, 0.7, 3, 0.5, 0.5, 0.7, 3, ], device=self.device)
+        self.action_lower_limit = torch.tensor([-0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100,
+                -0.5, -0.5, -0.7, -100, -0.7, -0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100, ], device=self.device)
+        self.action_upper_limit = torch.tensor([0.5, 0.5, 0.7, 100, 0.5, 0.5, 0.7, 100, 0.5, 0.5, 0.7, 100,
+                0.5, 0.5, 0.7, 100, 0.7, 0.5, 0.5, 0.7, 100, 0.5, 0.5, 0.7, 100, ], device=self.device)
         self.common_step_counter = 0
         self.commands=torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
         self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
@@ -128,6 +134,10 @@ class VehicleTerrain(VecTask):
 
         self.height_points=self.init_height_points()
         self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
+        for i in range(self.num_actions):
+            name=self.dof_names[i]
+            angle=self.named_default_joint_angles[name]
+            self.default_dof_pos[:, i]=angle
         torch_zeros = lambda : torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.episode_sums = {"lin_vel_x": torch_zeros(), "lin_vel_yz": torch_zeros(), "ang_vel_z": torch_zeros(),       #TODO:  修改
                              "ang_vel_xy": torch_zeros(),
@@ -137,6 +147,7 @@ class VehicleTerrain(VecTask):
                              "action_rate": torch_zeros(), "hip": torch_zeros()}
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.init_done=True
 
 
     def create_sim(self):
@@ -145,8 +156,11 @@ class VehicleTerrain(VecTask):
         terrain_type=self.cfg['env']['terrain']['terrainType']
         if terrain_type=='plane':
             self._create_ground_plane()
+            self.wheel_air_tips = 0.5
         elif terrain_type=="trimesh":
+            self.wheel_air_tips=2
             self._create_trimesh()
+            self.custom_origins=True
 
         self._create_envs(self.num_envs, self.cfg['env']['envSpacing'], int(np.sqrt(self.num_envs)))
 
@@ -159,12 +173,19 @@ class VehicleTerrain(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_trimesh(self):
-        self.terrain=Terrain()
+        self.terrain=Terrain(self.cfg["env"]["terrain"], num_robots=self.num_envs)
         tm_params = gymapi.TriangleMeshParams()
-        tm_params.nb_vertices=self.terrain.vertices.shape[0]
-        tm_params.nb_triangles=self.terrain.triangles.shape[0]
+        tm_params.nb_vertices = self.terrain.vertices.shape[0]
+        tm_params.nb_triangles = self.terrain.triangles.shape[0]
+        tm_params.transform.p.x = -self.terrain.border_size
+        tm_params.transform.p.y = -self.terrain.border_size
+        tm_params.transform.p.z = 0.0
+        tm_params.static_friction = self.cfg["env"]["terrain"]["staticFriction"]
+        tm_params.dynamic_friction = self.cfg["env"]["terrain"]["dynamicFriction"]
+        tm_params.restitution = self.cfg["env"]["terrain"]["restitution"]
 
-        # self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C', tm_params))
+        self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)
+        self.height_samples=torch.tensor(self.terrain.heightsamples).view(self.terrain.total_rows, self.terrain.total_cols).to(self.device)
 
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -194,21 +215,38 @@ class VehicleTerrain(VecTask):
         friction_buckets = torch_rand_float(friction_range[0], friction_range[1], (num_buckets, 1), device=self.device)
 
         dof_props = self.gym.get_asset_dof_properties(vehicle_asset)
-        dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
-        dof_props["stiffness"].fill(self.cfg['env']['control']['stiffness'])
-        dof_props["damping"].fill(self.cfg['env']['control']['damping'])
+        # dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
+        # dof_props["stiffness"].fill(self.cfg["env"]["control"]["stiffness"])
+        # dof_props["damping"].fill(self.cfg['env']['control']['damping'])
         body_names = self.gym.get_asset_rigid_body_names(vehicle_asset)
+
+        slider_index=self.gym.find_asset_dof_index(vehicle_asset, "slider_joint")
+        dof_props['driveMode'][slider_index] = gymapi.DOF_MODE_POS
+        dof_props["stiffness"][slider_index] = 1000000
+        dof_props['damping'][slider_index] = 200000
         wheel_names=[s for s in body_names if "wheel" in s]
+        steer_names=[s for s in body_names if "steer" in s]
+        dof_names=self.gym.get_asset_dof_names(vehicle_asset)
+        wheel_dof_names=[s for s in dof_names if "wheel" in s]
+        for s in wheel_dof_names:
+            wheel_index=self.gym.find_asset_dof_index(vehicle_asset, s)
+            dof_props['driveMode'][wheel_index] = gymapi.DOF_MODE_VEL
+            dof_props["stiffness"][wheel_index] = 0
+            dof_props['damping'][wheel_index] = 2000
+
         self.wheel_index=torch.zeros(len(wheel_names),dtype=torch.long, device=self.device, requires_grad=False)
-        self.wheel_dof_index = torch.zeros(len(wheel_names), dtype=torch.long, device=self.device,requires_grad=False)
+        self.wheel_dof_index = torch.zeros(len(wheel_names), dtype=torch.long, device=self.device, requires_grad=False)
+        self.steer_dof_index = torch.zeros(len(steer_names), dtype=torch.long, device=self.device, requires_grad=False)
+        self.fl_lift1_index = torch.tensor([1, 5, 9, 13, 18, 22], dtype=torch.long, device=self.device)
         self.dof_names = self.gym.get_asset_dof_names(vehicle_asset)
         self.base_index = 0
         self.slider_index=0
         #env origins
         self.env_origins=torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
-        if not self.curriculum: self.cfg['env']['terrain']['maxInitMapLevel']=self.cfg['env']['terrain']['numLevels']-1
+        if not self.curriculum: self.cfg['env']['terrain']['maxInitMapLevel']=self.cfg['env']['terrain']['numLevels']-1     #出生点差异由此导致
         self.terrain_levels=torch.randint(0, self.cfg['env']['terrain']["maxInitMapLevel"]+1, (self.num_envs,), device=self.device)
         self.terrain_types = torch.randint(0, self.cfg["env"]["terrain"]["numTerrains"], (self.num_envs,), device=self.device)
+
         if self.custom_origins:
             self.terrain_origins=torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             spacing=0.
@@ -216,10 +254,11 @@ class VehicleTerrain(VecTask):
         env_upper=gymapi.Vec3(spacing, spacing, spacing)
         self.vehicle_handles = []
         self.envs = []
+        self.cameras=[]
         for i in range(self.num_envs):
             env_handle=self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
             if self.custom_origins:
-                self.env_origins[i] = self.terrain_origins[self.terrain_levels[i], self.terrain_types[i]]
+                self.env_origins[i] = self.terrain_origins[self.terrain_levels[i], self.terrain_types[i]]       #从这个地方导致的出生点差异
                 pos=self.env_origins[i].clone()
                 pos[:2]+=torch_rand_float(-1, 1., (2, 1), device=self.device).squeeze(1)
                 start_pose.p=gymapi.Vec3(*pos)
@@ -228,25 +267,32 @@ class VehicleTerrain(VecTask):
             self.gym.set_asset_rigid_shape_properties(vehicle_asset, rigid_shape_prop)
             vehicle_handle=self.gym.create_actor(env_handle, vehicle_asset, start_pose, 'vehicle', i, 0, 0)
 
-
             # self.dof_names = self.gym.get_actor_dof_names(env_handle, vehicle_handle)
-            wheel_dof_names = [s for s in self.dof_names if "wheel" in s]
-            for s in wheel_dof_names:
-                wheel_indices=self.gym.find_actor_dof_index(env_handle, vehicle_handle, s, gymapi.DOMAIN_ENV)       #TODO: ==-1 ???????
-                dof_props['driveMode'][wheel_indices]=gymapi.DOF_MODE_VEL
-                dof_props['damping'][wheel_indices]=1500.0
+            # wheel_dof_names = [s for s in self.dof_names if "wheel" in s]
+            # for s in wheel_dof_names:
+            #     wheel_indices=self.gym.find_actor_dof_index(env_handle, vehicle_handle, s, gymapi.DOMAIN_ENV)       #TODO: ==-1 ???????
+            #     dof_props['driveMode'][wheel_indices]=gymapi.DOF_MODE_VEL
+            #     dof_props["stiffness"][wheel_indices]=0
+            #     dof_props['damping'][wheel_indices]=2000
                 # print(wheel_indices)
             # print(dof_props['driveMode'])
+            # print(dof_props["stiffness"])
+            # print(dof_props['damping'])
             self.gym.set_actor_dof_properties(env_handle, vehicle_handle, dof_props)
+
+            # camera_handle=self.set_camera_sensors(env_handle, vehicle_handle)
+            # self.cameras.append(camera_handle)
             self.envs.append(env_handle)
             self.vehicle_handles.append(vehicle_handle)
+
         dof_names=self.gym.get_actor_dof_names(self.envs[0], self.vehicle_handles[0])
         wheel_dof_names=[s for s in dof_names if "wheel" in s]
+        steer_dof_names=[s for s in dof_names if "steer" in s]
         for i in range(len(wheel_names)):
             self.wheel_index[i]=self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], wheel_names[i])
             self.wheel_dof_index[i]=self.gym.find_actor_dof_index(self.envs[0], self.vehicle_handles[0], wheel_dof_names[i], gymapi.DOMAIN_ENV)
-
-
+        for i in range(len(steer_names)):
+            self.steer_dof_index[i]=self.gym.find_actor_dof_index(self.envs[0], self.vehicle_handles[0], steer_dof_names[i], gymapi.DOMAIN_ENV)
         self.base_index=self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], "base_link")
         self.slider_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.vehicle_handles[0], "slider")
 
@@ -289,6 +335,7 @@ class VehicleTerrain(VecTask):
         self.last_dof_vel[env_ids]= 0.
         self.progress_buf[env_ids]=0
         self.reset_buf[env_ids]= 1.         #TODO:why?
+        self.wheel_air_time.zero_()
 
         #填写extras 及计算清理env_ids 对应的episode_sums
         self.extras['episode']={}
@@ -300,37 +347,66 @@ class VehicleTerrain(VecTask):
 
 
     def update_terrain_level(self, env_ids):    #TODO：
-        pass
+        if not self.init_done or not self.curriculum:
+            return
+        distance = torch.norm(self.root_states[env_ids, :2] - self.env_origins[env_ids, :2], dim=1)
+        self.terrain_levels[env_ids] -= 1 * (distance < torch.norm(self.commands[env_ids, :2]) * self.max_episode_length_s * 0.25)
+        self.terrain_levels[env_ids] += 1 * (distance > self.terrain.env_length / 2)
+        self.terrain_levels[env_ids] = torch.clip(self.terrain_levels[env_ids], 0) % self.terrain.env_rows
+        self.env_origins[env_ids] = self.terrain_origins[self.terrain_levels[env_ids], self.terrain_types[env_ids]]
 
 
     def check_termination(self):    #TODO: 确定一些终止条件
-        # self.reset_buf = torch.norm(self.contact_forces[:, self.base_index, :], dim=1) > 1.     #base 的力
-        # print(self.contact_forces.cpu().numpy())
-
-        # print(self.contact_forces[:,self.base_index,:])
-        self.reset_buf=torch.norm(self.contact_forces[:,self.slider_index,:],dim=1)>1
+        self.reset_buf = torch.norm(self.contact_forces[:, self.base_index, :], dim=1) > 1.     #base 的力
+        # print(torch.sum(self.reset_buf.cpu()))
+        # print(self.contact_forces[:, self.base_index, :].cpu().numpy())
+        # print(self.reset_buf)
         #six wheels left the plane
+        self.reset_buf|=torch.norm(self.contact_forces[:,self.slider_index,:],dim=1)>1
+        # print(torch.sum(self.reset_buf.cpu()))
         contact=self.contact_forces[:, self.wheel_index, 2]>1.
         # print(~torch.any(contact, dim=1))
         self.reset_buf |=~torch.any(contact, dim=1)
+        # print(torch.sum(self.reset_buf.cpu()))
+        # print(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))
+        # if len(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))>0:       #车轮长时间滞空则重置
+            # self.reset_idx(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))
+        # print(torch.any(self.wheel_air_time>0.5, dim=1))
+        self.reset_buf |= torch.any(self.wheel_air_time>self.wheel_air_tips, dim=1)
 
         #orientation >45度
         # print("self.reset_buf2", self.reset_buf)
+        # torch.unique((self.wheel_air_time > 0.5).nonzero()[:, 0])
 
-        self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
+        self.reset_buf |= torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
+        # print(self.reset_buf)
+        # print(torch.sum(self.reset_buf.cpu()))
 
 
     def compute_observations(self):
         self.measured_heights=self.get_heights()
-        heights=torch.clip(self.root_states[:,2].unsqueeze(-1)-0.5-self.measured_heights, -1, 1.) * self.height_meas_scale
+        heights=torch.clip(self.root_states[:,2].unsqueeze(1)-self.measured_heights, -1, 1.) * self.height_meas_scale
         self.obs_buf=torch.cat((self.base_lin_vel*self.lin_vel_scale,
                                 self.base_ang_vel*self.ang_vel_scale,
                                 self.projected_gravity,
                                 self.commands[:, :3]*self.commands_scale,
                                 self.dof_pos*self.dof_pos_scale,
                                 self.dof_vel*self.dof_vel_scale,
-                                heights,
-                                self.actions), dim=-1)
+                                self.actions,
+                                heights,), dim=-1)
+
+        # color_image=self.gym.get_camera_image(self.sim, self.envs[0], self.cameras[0], gymapi.IMAGE_COLOR)
+        # print("----------------------------")
+        # # print(color_image.shape)
+        # image_data=np.frombuffer(color_image, dtype=np.uint8)
+        # image=image_data.reshape((1280, 1280, 4))
+        # image = image.astype(np.uint8)  # 确保图像数据是uint8类型
+        # if image.ndim == 3 and image.shape[2] == 4:  # 如果图像是RGBA格式的，转换为RGB
+        #     image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        # if self.cfg.env.viewer.create_video:
+        #     self.camera_video.write(image)
+
+
 
 
     def compute_reward(self):
@@ -340,11 +416,7 @@ class VehicleTerrain(VecTask):
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_xy']
         rew_ang_vel_z=torch.exp(-ang_vel_error/0.25)*self.rew_scales['ang_vel_z']
-        # print(f"lin_vel_error:{lin_vel_error}, \n ang_vel_error:{ang_vel_error}")
-        # print(torch.exp(-ang_vel_error/0.25))
-        # print(rew_ang_vel_z)
-        # print(self.base_lin_vel[0,:2])
-        # print(self.commands)
+        # print(self.base_lin_vel[:, 0])
 
         # other base velocity penalties
         # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_z"]
@@ -353,15 +425,15 @@ class VehicleTerrain(VecTask):
 
         # 5 orientation penalty（pitch roll）
         rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.rew_scales["orient"]
+        # rew_orient = torch.square(self.projected_gravity[:, 2]) * self.rew_scales["orient"]
 
         # 6 wheel air time penalty 对轮子不贴地的惩罚
-        contact=self.contact_forces[:, self.wheel_index, 2]>1
-        # first_contact = (self.wheel_air_time > 0.) * contact
+        contact = self.contact_forces[:, self.wheel_index, 2] > 1
         self.wheel_air_time += self.dt
-        rew_airTime = torch.sum(self.wheel_air_time-0.01, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
+        rew_airTime = torch.sum(self.wheel_air_time - 0.01, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
+        # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
         self.wheel_air_time *= ~contact
-
+        # print(self.wheel_air_time)
 
 
         # 7 joint acc penalty
@@ -378,15 +450,23 @@ class VehicleTerrain(VecTask):
         # 11 base height penalty
         rew_base_height=torch.square(self.root_states[:,2]-self.base_height)*self.rew_scales['base_height']
 
-        self.rew_buf= rew_lin_vel_x + rew_lin_vel_yz + rew_ang_vel_xy + rew_ang_vel_z  + rew_orient + rew_joint_acc + rew_action_rate + rew_base_height \
-                      + rew_airTime
+        # 12 base contact penalty
+        rew_base_contact=torch.norm(self.contact_forces[:, self.base_index, :], dim=1) * self.rew_scales['base_contact']
+
+        # 13 stability margin
+        rew_stab_margin=0
+
+        self.rew_buf= rew_lin_vel_x + rew_lin_vel_yz + rew_ang_vel_xy + rew_ang_vel_z  + rew_orient + rew_joint_acc + rew_action_rate \
+                      + rew_airTime + rew_base_contact
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
-        # print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
-        #       f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
-        #       f"rew_action_rate:{torch.sum(rew_action_rate)}, rew_base_height:{torch.sum(rew_base_height)},\nrew_airTime:{torch.sum(rew_airTime)}, "
-        #       f"rew_torque:{torch.sum(rew_torque)}")
-        # print(f"        total_rewards:{torch.sum(self.rew_buf)}")
+        if self.print_reward:
+            print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
+                  f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
+                  f"rew_action_rate:{torch.sum(rew_action_rate)}, rew_base_height:{torch.sum(rew_base_height)},\nrew_airTime:{torch.sum(rew_airTime)}, "
+                  f"rew_base_contact:{torch.sum(rew_base_contact)}, rew_torque:{torch.sum(rew_torque)}")
+            print(f"        total_rewards:{torch.sum(self.rew_buf)}")
+            # print(self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf)
 
         # log episode rewar d sums
         self.episode_sums["lin_vel_x"] += rew_lin_vel_x
@@ -401,20 +481,27 @@ class VehicleTerrain(VecTask):
 
     def pre_physics_step(self, actions):
         self.actions=actions.clone().to(self.device)
-        # self.actions=self.actions+self.default_dof_pos
-        self.actions=torch.max(torch.min(self.actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
-        self.actions[:,self.slider_index-1]=0.0
-
-        # self.actions=torch.zeros(64, 25, dtype=torch.float32, device="cuda:0")
-        for i in self.wheel_dof_index:
-            self.actions[:, i]*=5
-        # print(self.actions.detach().cpu().numpy())
+        actions=torch.max(torch.min(actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
+        self.actions[:,self.slider_index-1]=0.0     #将中间轴的运动设置为0
+        for i in self.fl_lift1_index:
+            self.actions[:, i]= -self.actions[:, i-1]
+        # self.actions=torch.zeros(32, 25, dtype=torch.float32, device="cuda:0")
+        # actions=torch.tensor([0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0], dtype=torch.float32, device=self.device)
+        # self.actions=actions.repeat(32, 1)
+        # for i in self.wheel_dof_index:
+        #     self.actions[:, i]=-2
+        for i in self.steer_dof_index:
+            self.actions[:, i]=0
+        # print(self.steer_dof_index)
+        # print(self.actions.detach().cpu().numpy()[0])
         # 一次控制多步运动
         for i in range(self.decimation):
-            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -80,80)     #TODO:急需修改
+            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -800, 800)     #TODO:急需修改 80完全控制不了
             self.torques = torques.view(self.torques.shape)
-            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
-            # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
+            # print(self.torques[0])
+            # print(self.dof_pos[0])
+            # self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
+            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.simulate(self.sim)
             if self.device == 'cpu':
@@ -431,8 +518,8 @@ class VehicleTerrain(VecTask):
         self.progress_buf += 1
         self.randomize_buf += 1
         self.common_step_counter += 1
-        if self.common_step_counter % self.push_interval==0:
-            self.push_robots()
+        # if self.common_step_counter % self.push_interval==0:
+        #     self.push_robots()
         #prepare quantities
         self.base_quat = self.root_states[:, 3:7]
         self.base_lin_vel=quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
@@ -446,10 +533,10 @@ class VehicleTerrain(VecTask):
         self.check_termination()
         self.compute_reward()
 
+
         env_ids=self.reset_buf.nonzero(as_tuple=False).flatten()
         if len(env_ids)>0:
             self.reset_idx(env_ids)
-        # print(env_ids)
 
         self.compute_observations()     #设置obs_buf
         if self.add_noise:
@@ -459,9 +546,10 @@ class VehicleTerrain(VecTask):
         self.last_dof_vel[:]=self.dof_vel[:]
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
+            print("-----------------------")
             self.gym.clear_lines(self.viewer)
             self.gym.refresh_rigid_body_state_tensor(self.sim)
-            # sphere_geom=gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+            sphere_geom=gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
             for i in range(self.num_envs):
                 base_pos = (self.root_states[i, :3]).cpu().numpy()
                 heights = self.measured_heights[i].cpu().numpy()
@@ -471,7 +559,7 @@ class VehicleTerrain(VecTask):
                     y = height_points[j, 1] + base_pos[1]
                     z = heights[j]
                     sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
-                    # gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 
     def _get_noise_scale_vec(self, cfg):
@@ -503,7 +591,22 @@ class VehicleTerrain(VecTask):
         points[:,:,1]=grid_y.flatten()
         return points
 
+    def set_camera_sensors(self, env, actor_handle):
+        camera_props=gymapi.CameraProperties()
+        camera_props.width=1280
+        camera_props.height=1280
+        camera_handle=self.gym.create_camera_sensor(env, camera_props)
 
+        body_handle=self.gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
+
+        transform=gymapi.Transform()
+        transform.p = gymapi.Vec3(0,0,0)
+        transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0,0,1), np.radians(torch.tensor(0)))
+        self.gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
+        self.gym.render_all_camera_sensors(self.sim)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.camera_video = cv2.VideoWriter('video1.mp4', fourcc, 30.0, (1280, 1280))
+        return camera_handle
 
     def get_heights(self, env_ids=None): #TODO: not finish
         if self.cfg['env']['terrain']['terrainType'] == "plane":
@@ -517,9 +620,22 @@ class VehicleTerrain(VecTask):
             points=quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[:, :3]).unsqueeze(1)
 
         points += self.terrain.border_size
-        points=(points)
+        points=(points/self.terrain.horizontal_scale).long()
+        px = points[:, :, 0].view(-1)
+        py = points[:, :, 1].view(-1)
+        px = torch.clip(px, 0, self.height_samples.shape[0] - 2)
+        py = torch.clip(py, 0, self.height_samples.shape[1] - 2)
 
-    def stand_by(self):
+        heights1 = self.height_samples[px, py]
+
+        heights2 = self.height_samples[px + 1, py + 1]
+        heights = torch.min(heights1, heights2)
+
+        return heights.view(self.num_envs, -1) * self.terrain.vertical_scale
+
+
+
+def stand_by(self):
         while not self.gym.query_viewer_has_closed(self.viewer):
             # step the physics
             self.gym.simulate(self.sim)
@@ -534,8 +650,132 @@ class VehicleTerrain(VecTask):
         self.gym.destroy_sim(self.sim)
 
 
+from isaacgym.terrain_utils import *
 class Terrain():
-    pass
+    def __init__(self, cfg, num_robots):
+        self.horizontal_scale=0.1
+        self.border_size = 20
+        self.vertical_scale=0.005
+        self.env_length = cfg["mapLength"]
+        self.env_width = cfg["mapWidth"]
+        self.proportions=[np.sum(cfg["terrainProportions"][:i+1]) for i in range(len(cfg['terrainProportions']))]   #[0.1, 0.2, 0.55, 0.8, 1.0]
+
+        self.env_rows=cfg["numLevels"]
+        self.env_cols=cfg["numTerrains"]
+        self.num_maps= self.env_rows * self.env_cols
+        self.env_origins=np.zeros((self.env_rows, self.env_cols, 3))
+
+        self.width_per_env_pixels= int(self.env_width / self.horizontal_scale)
+        self.length_per_env_pixels= int(self.env_length/ self.horizontal_scale)
+
+        self.border = int(self.border_size/self.horizontal_scale)
+        self.total_cols=int(self.env_cols*self.width_per_env_pixels)+2*self.border
+        self.total_rows=int(self.env_rows*self.width_per_env_pixels)+2*self.border
+
+        self.height_field_raw=np.zeros((self.total_rows, self.total_cols), dtype=np.int16)
+        if cfg["curriculum"]:
+            self.curiculum(num_robots, num_terrains=self.env_cols, num_levels=self.env_rows)
+        else:
+            self.randomized_terrain()
+
+        self.heightsamples=self.height_field_raw
+        self.vertices, self.triangles = convert_heightfield_to_trimesh(self.height_field_raw, self.horizontal_scale, self.vertical_scale, cfg["slopeTreshold"])
+
+
+    def randomized_terrain(self):
+        for k in range(self.num_maps):
+            (i, j)= np.unravel_index(k, (self.env_rows, self.env_cols))
+
+            start_x=self.border+i * self.length_per_env_pixels
+            end_x=self.border+(i+1) * self.length_per_env_pixels
+            start_y=self.border+j * self.length_per_env_pixels
+            end_y=self.border+(j+1) * self.length_per_env_pixels
+
+            terrain=SubTerrain(width=self.width_per_env_pixels,
+                               length=self.width_per_env_pixels,
+                               vertical_scale=self.vertical_scale,
+                               horizontal_scale=self.horizontal_scale)
+
+            choice=np.random.uniform(0,1)
+
+            if choice<0.1:
+                if np.random.choice([0,1]):
+                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
+                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step=0.05, downsampled_scale=0.2)
+                else:
+                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
+            elif choice<0.6:
+                step_height = np.random.choice([-0.15, 0.15])
+                pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
+            elif choice<1:
+                discrete_obstacles_terrain(terrain, 0.15, 1., 2., 40, platform_size=3.)
+
+            self.height_field_raw[start_x:end_x, start_y:end_y] = terrain.height_field_raw
+
+            env_origin_x=(i+0.5)*self.env_length
+            env_origin_y=(j+0.5)*self.env_width
+            x1=int((self.env_length/2.-1)/self.horizontal_scale)
+            x2=int((self.env_length/2+1)/self.horizontal_scale)
+            y1 = int((self.env_width / 2. - 1) / self.horizontal_scale)
+            y2 = int((self.env_width / 2. + 1) / self.horizontal_scale)
+            env_origin_z=np.max(terrain.height_field_raw[x1:x2,y1:y2])*self.vertical_scale
+            self.env_origins[i,j]=[env_origin_x, env_origin_y, env_origin_z]
+
+
+    def curiculum(self, num_robots, num_terrains, num_levels):
+        num_robots_per_map = int(num_robots/ num_terrains)
+        left_over=num_robots % num_terrains
+        for j in range(num_terrains):
+            for i in range(num_levels):
+                terrain=SubTerrain("terrain", width=self.width_per_env_pixels, length=self.width_per_env_pixels,
+                                   vertical_scale=self.vertical_scale, horizontal_scale=self.horizontal_scale)
+                difficulty=i/num_levels
+                choice=j/num_terrains
+                slope=difficulty*0.4
+                step_height=0.05+0.175*difficulty
+                discrete_obstacles_height=0.025+difficulty*0.15
+                amplitude=0.1+difficulty*0.5
+                stepping_stones_size=2-1.8*difficulty
+
+                if choice<self.proportions[0]:
+                    if choice<0.05:
+                        slope*=-1
+                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
+                elif choice<self.proportions[1]:
+                    if choice<0.15:
+                        slope*=-1
+                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
+                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step= 0.025, downsampled_scale=0.2)
+                elif choice<self.proportions[3]:
+                    if choice<self.proportions[2]:
+                        step_height*=-1
+                    pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
+                elif choice < self.proportions[4]:
+                    discrete_obstacles_terrain(terrain, discrete_obstacles_height, 1., 2., 40, platform_size=3.)
+                else:
+                    wave_terrain(terrain, num_waves=1, amplitude=amplitude)
+                    # stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=0.1, max_height=0.,
+                    #                         platform_size=3.)
+
+                start_x=self.border+i * self.length_per_env_pixels
+                end_x=self.border+(i+1) * self.length_per_env_pixels
+                start_y=self.border+j * self.length_per_env_pixels
+                end_y=self.border+(j+1) * self.length_per_env_pixels
+                self.height_field_raw[start_x:end_x, start_y:end_y]=terrain.height_field_raw
+
+                robots_in_map = num_robots_per_map
+                if j < left_over:
+                    robots_in_map+=1
+
+                env_origin_x=(i+0.5) * self.env_length
+                env_origin_y=(j+0.5) * self.env_width
+
+                x1= int((self.env_length/2-1)/self.horizontal_scale)
+                x2= int((self.env_length/2+1)/self.horizontal_scale)
+                y1= int((self.env_width/2-1)/self.horizontal_scale)
+                y2= int((self.env_width/2+1)/self.horizontal_scale)
+                env_origin_z=np.max(terrain.height_field_raw[x1:x2, y1:y2])* self.vertical_scale
+                self.env_origins[i,j] = [env_origin_x, env_origin_y, env_origin_z]
 
 
 

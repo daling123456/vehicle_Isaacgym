@@ -44,6 +44,7 @@ class Vehicle(VecTask):
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
         self.height_samples=None
         self.init_done=False
+        self.break_=False
 
 
         # normalization
@@ -53,6 +54,9 @@ class Vehicle(VecTask):
         self.dof_vel_scale = self.cfg["env"]["learn"]["dofVelocityScale"]
         self.height_meas_scale = self.cfg["env"]["learn"]["heightMeasurementScale"]
         self.action_scale = self.cfg["env"]["control"]["actionScale"]
+
+        self.camera_width=self.cfg["env"]["viewer"]["camera_width"]
+        self.camera_height = self.cfg["env"]["viewer"]["camera_height"]
 
         # base init state
         pos = self.cfg["env"]["baseInitState"]["pos"]
@@ -98,6 +102,8 @@ class Vehicle(VecTask):
 
         super().__init__(cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+        self.camera_buffer=torch.zeros((self.num_envs, self.camera_width, self.camera_height, 4), device=self.device, dtype=torch.int8)
+
         # get gym GPU state tensors
         _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         _actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)      #position([0:3]), rotation([3:7]), linear velocity([7:10]), and angular velocity([10:13]).
@@ -194,7 +200,7 @@ class Vehicle(VecTask):
 
         asset_options=gymapi.AssetOptions()
         # asset_options.default_dof_drive_mode=gymapi.DOF_MODE_EFFORT
-        asset_options.collapse_fixed_joints=True
+        # asset_options.collapse_fixed_joints=True
         asset_options.flip_visual_attachments=True
         asset_options.armature=0.0
         asset_options.disable_gravity=False
@@ -284,6 +290,9 @@ class Vehicle(VecTask):
             self.cameras.append(camera_handle)
             self.envs.append(env_handle)
             self.vehicle_handles.append(vehicle_handle)
+        # print(self.cameras)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.camera_video = cv2.VideoWriter('video1.mp4', fourcc, 15.0, (self.camera_width, self.camera_height))
 
         dof_names=self.gym.get_actor_dof_names(self.envs[0], self.vehicle_handles[0])
         wheel_dof_names=[s for s in dof_names if "wheel" in s]
@@ -372,7 +381,7 @@ class Vehicle(VecTask):
         # if len(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))>0:       #车轮长时间滞空则重置
             # self.reset_idx(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))
         # print(torch.any(self.wheel_air_time>0.5, dim=1))
-        # self.reset_buf |= torch.any(self.wheel_air_time>self.wheel_air_tips, dim=1)
+        self.reset_buf |= torch.any(self.wheel_air_time>self.wheel_air_tips, dim=1)
 
         #orientation >45度
         # print("self.reset_buf2", self.reset_buf)
@@ -394,19 +403,6 @@ class Vehicle(VecTask):
                                 self.dof_vel*self.dof_vel_scale,
                                 self.actions,
                                 heights,), dim=-1)
-
-        color_image=self.gym.get_camera_image(self.sim, self.envs[10], self.cameras[10], gymapi.IMAGE_COLOR)
-        # print("----------------------------")
-        # print(color_image.shape)
-        image_data=np.frombuffer(color_image, dtype=np.uint8)
-        image=image_data.reshape((1280, 1280, 4))
-        image = image.astype(np.uint8)  # 确保图像数据是uint8类型
-        if image.ndim == 3 and image.shape[2] == 4:  # 如果图像是RGBA格式的，转换为RGB
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-        if self.cfg.env.viewer.create_video:
-            self.camera_video.write(image)
-
-
 
 
     def compute_reward(self):
@@ -498,7 +494,7 @@ class Vehicle(VecTask):
         for i in range(self.decimation):
             torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -800, 800)     #TODO:急需修改 80完全控制不了
             self.torques = torques.view(self.torques.shape)
-            print(self.torques[0])
+            # print(self.torques[0])
             # print(self.dof_pos[0])
             # self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
@@ -532,6 +528,7 @@ class Vehicle(VecTask):
 
         self.check_termination()
         self.compute_reward()
+        self.play_video()
 
 
         env_ids=self.reset_buf.nonzero(as_tuple=False).flatten()
@@ -593,20 +590,46 @@ class Vehicle(VecTask):
 
     def set_camera_sensors(self, env, actor_handle):
         camera_props=gymapi.CameraProperties()
-        camera_props.width=1280
-        camera_props.height=1280
+        camera_props.width=self.camera_width
+        camera_props.height=self.camera_height
+        camera_props.enable_tensors=self.cfg.env.viewer.enable_tensors
         camera_handle=self.gym.create_camera_sensor(env, camera_props)
 
         body_handle=self.gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
 
         transform=gymapi.Transform()
-        transform.p = gymapi.Vec3(0,0,0)
-        transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0,0,1), np.radians(torch.tensor(0)))
+        transform.p = gymapi.Vec3(*self.cfg.env.viewer.camera_pos)
+        transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(*self.cfg.env.viewer.camera_axis), np.radians(self.cfg.env.viewer.camera_angle))
         self.gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
-        self.gym.render_all_camera_sensors(self.sim)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.camera_video = cv2.VideoWriter('video1.mp4', fourcc, 30.0, (1280, 1280))
         return camera_handle
+
+
+    def play_video(self):
+        # _camera_tensor=self.gym.get_camera_image_gpu_tensor(self.sim, self.envs[0], self.cameras[0], gymapi.IMAGE_COLOR)
+        # camera_tensor=gymtorch.wrap_tensor(_camera_tensor)
+        # print(camera_tensor.shape)
+        for i in range(len(self.envs)):
+            _camera_tensor = self.gym.get_camera_image_gpu_tensor(self.sim, self.envs[0], self.cameras[0], gymapi.IMAGE_COLOR)
+            camera_tensor = gymtorch.wrap_tensor(_camera_tensor)
+            self.camera_buffer[i]=camera_tensor
+
+        self.gym.render_all_camera_sensors(self.sim)
+        # color_image=self.gym.get_camera_image(self.sim, self.envs[0], self.cameras[0], gymapi.IMAGE_COLOR)
+
+        image_data=np.frombuffer(self.camera_buffer[2].cpu().numpy(), dtype=np.uint8)
+        image=image_data.reshape((self.camera_height, self.camera_width, 4))
+        image = image.astype(np.uint8)  # 确保图像数据是uint8类型
+        if image.ndim == 3 and image.shape[2] == 4:  # 如果图像是RGBA格式的，转换为RGB
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        if self.cfg.env.viewer.create_video:
+            self.camera_video.write(image)
+            rgba_for_display = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+            cv2.imshow('Real-time Video', rgba_for_display)
+            # print(rgba_for_display[0][0])
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                self.break_=True
+
+
 
     def get_heights(self, env_ids=None): #TODO: not finish
         if self.cfg['env']['terrain']['terrainType'] == "plane":

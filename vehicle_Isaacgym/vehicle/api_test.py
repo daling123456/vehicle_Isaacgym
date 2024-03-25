@@ -4,7 +4,8 @@ import numpy as np
 from isaacgym import gymapi
 from isaacgym import gymtorch
 from isaacgym.terrain_utils import *
-
+import cv2
+import matplotlib.pyplot as plt
 import torch
 Device="cuda:0"
 
@@ -108,6 +109,7 @@ def env_actor_create(sim,asset, num_envs):
     env_upper=gymapi.Vec3(spacing,spacing,spacing)
     envs=[]
     ActorHandles=[]
+    cameras=[]
     for i in range(num_envs):
         env=gym.create_env(sim, env_lower, env_upper, envs_per_row)            #create_env
         envs.append(env)
@@ -117,7 +119,22 @@ def env_actor_create(sim,asset, num_envs):
         actor_handle=gym.create_actor(env, asset, pose, "MyActor", 0, 0)        #create_actor
         ActorHandles.append(actor_handle)
         gym.enable_actor_dof_force_sensors(env, actor_handle)
-    return envs, ActorHandles
+        camera_actor_handle = gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
+        # print("camera_handle:", camera_actor_handle)
+        loc = [0, 0, 0.]
+        target_loc = [1, 0, 0]
+        angle = torch.tensor(10)
+        image_width = 640
+        image_height = 640
+
+        camera_handle = camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle,
+                                       image_width=image_width, image_height=image_height)
+        cameras.append(camera_handle)
+        # print(camera_handle)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter('output5.mp4', fourcc, 30.0, (image_width, image_height))
+    return envs, ActorHandles, out, cameras
 
 def create_viewer(sim):
     cam_props=gymapi.CameraProperties()
@@ -151,7 +168,7 @@ def get_body_states():
 def set_dof_props(envs, ActorHandles):
     for j in range(len(envs)):
         props=gym.get_actor_dof_properties(envs[j], ActorHandles[j],)
-        print(props['driveMode'])
+        # print(props['driveMode'])
         props["driveMode"].fill(gymapi.DOF_MODE_POS)
         props["stiffness"].fill(400000.0)
         props["damping"].fill(20000.0)
@@ -161,7 +178,7 @@ def set_dof_props(envs, ActorHandles):
             props["damping"][i]=1500.0
         # print(props["driveMode"])
         gym.set_actor_dof_properties(envs[j], ActorHandles[j], props)
-        print(props['driveMode'])
+        # print(props['driveMode'])
 
 #
 def apply_actor_effort(props,actorhandle):
@@ -225,11 +242,11 @@ def camera_sensors(env, body_handle, locs, target_locs, angle, image_width, imag
     transform= gymapi.Transform()
     transform.p = gymapi.Vec3(locs[0], locs[1], locs[2])
     # transform.p = gymapi.Vec3(0, 0, 0)
-    transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), np.radians(angle))
+    transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), np.radians(angle))
     # gym.set_camera_transform(camera_handle, env, transform)
     gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
 
-    gym.render_all_camera_sensors(sim)
+    # gym.render_all_camera_sensors(sim)
     return  camera_handle
 
 ######### Tensor 操作 ###########
@@ -487,7 +504,7 @@ if __name__=="__main__":
     create_plane(sim)
     create_terrain()
     asset=load_assets(sim)
-    envs, actor_handles=env_actor_create(sim,asset, num_envs=32)
+    envs, actor_handles, out, cameras=env_actor_create(sim,asset, num_envs=32)
     # initial_state = np.copy(gym.get_sim_rigid_body_states(sim, gymapi.STATE_ALL))
     viewer=create_viewer(sim)
     gym.prepare_sim(sim)
@@ -497,21 +514,9 @@ if __name__=="__main__":
     num_bodies=gym.get_actor_rigid_body_count(env, actor_handle)
 
     # print(gym.get_actor_joint_transforms(env, actor_handle))
+    image_width = 640
+    image_height = 640
 
-    camera_actor_handle=gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
-    print("camera_handle:", camera_actor_handle)
-    loc=[0, 0, 0.]
-    target_loc=[0, 1, 0]
-    angle=torch.tensor(0)
-    image_width=640
-    image_height=640
-
-    camera_handle=camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle, image_width=image_width, image_height=image_height)
-
-    import cv2
-    import matplotlib.pyplot as plt
-    fourcc=cv2.VideoWriter_fourcc(*'mp4v')
-    out=cv2.VideoWriter('output5.mp4', fourcc, 30.0, (image_width, image_height))
 
 
     num_joints=gym.get_actor_joint_count(env, actor_handle)
@@ -580,7 +585,7 @@ if __name__=="__main__":
 
         # print(viewer)
 
-        color_image=gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+        color_image=gym.get_camera_image(sim, env, cameras[0], gymapi.IMAGE_COLOR)
         # print("----------------------------")
         # print(color_image.shape)
         image_data=np.frombuffer(color_image, dtype=np.uint8)
@@ -595,10 +600,10 @@ if __name__=="__main__":
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-
-            # 显示图像
-        plt.imshow(image)
-        plt.axis('off')  # 关闭坐标轴
+        #
+        #     # 显示图像
+        # plt.imshow(image)
+        # plt.axis('off')  # 关闭坐标轴
         # plt.show()
         # 刷新root——tensor
         # step+=1

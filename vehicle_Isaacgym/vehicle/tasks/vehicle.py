@@ -120,7 +120,6 @@ class Vehicle(VecTask):
         self.root_states=gymtorch.wrap_tensor(_actor_root_state)    #position([0:3]), rotation([3:7]), linear velocity([7:10]), and angular velocity([10:13]).
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
 
-
         # init some data used later
         self.action_lower_limit = torch.tensor([-0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100,
                 -0.5, -0.5, -0.7, -100, -0.7, -0.5, -0.5, -0.7, -100, -0.5, -0.5, -0.7, -100, ], device=self.device)
@@ -193,18 +192,17 @@ class Vehicle(VecTask):
         self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)
         self.height_samples=torch.tensor(self.terrain.heightsamples).view(self.terrain.total_rows, self.terrain.total_cols).to(self.device)
 
-
     def _create_envs(self, num_envs, spacing, num_per_row):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets')
         asset_file = self.cfg["env"]["urdfAsset"]["file"]
 
         asset_options=gymapi.AssetOptions()
         # asset_options.default_dof_drive_mode=gymapi.DOF_MODE_EFFORT
-        # asset_options.collapse_fixed_joints=True
+        asset_options.collapse_fixed_joints=self.cfg.env.urdfAsset.collapseFixedJoints
         asset_options.flip_visual_attachments=True
         asset_options.armature=0.0
         asset_options.disable_gravity=False
-        # asset_options.replace_cylinder_with_capsule=True
+        # asset_options.replace_cylinder_with_capsule=True  #罪魁祸首
         asset_options.fix_base_link=self.cfg["env"]["urdfAsset"]["fixBaseLink"]
         vehicle_asset=self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
         self.num_dof=self.gym.get_asset_dof_count(vehicle_asset)
@@ -267,29 +265,21 @@ class Vehicle(VecTask):
                 self.env_origins[i] = self.terrain_origins[self.terrain_levels[i], self.terrain_types[i]]       #从这个地方导致的出生点差异
                 pos=self.env_origins[i].clone()
                 pos[:2]+=torch_rand_float(-1, 1., (2, 1), device=self.device).squeeze(1)
+                pos[2]=0.1
                 start_pose.p=gymapi.Vec3(*pos)
             for s in range(len(rigid_shape_prop)):
                 rigid_shape_prop[s].friction=friction_buckets[i%num_buckets]        #随机化摩擦力
             self.gym.set_asset_rigid_shape_properties(vehicle_asset, rigid_shape_prop)
             vehicle_handle=self.gym.create_actor(env_handle, vehicle_asset, start_pose, 'vehicle', i, 0, 0)
-
-            # self.dof_names = self.gym.get_actor_dof_names(env_handle, vehicle_handle)
-            # wheel_dof_names = [s for s in self.dof_names if "wheel" in s]
-            # for s in wheel_dof_names:
-            #     wheel_indices=self.gym.find_actor_dof_index(env_handle, vehicle_handle, s, gymapi.DOMAIN_ENV)       #TODO: ==-1 ???????
-            #     dof_props['driveMode'][wheel_indices]=gymapi.DOF_MODE_VEL
-            #     dof_props["stiffness"][wheel_indices]=0
-            #     dof_props['damping'][wheel_indices]=2000
-                # print(wheel_indices)
-            # print(dof_props['driveMode'])
-            # print(dof_props["stiffness"])
-            # print(dof_props['damping'])
             self.gym.set_actor_dof_properties(env_handle, vehicle_handle, dof_props)
 
             camera_handle=self.set_camera_sensors(env_handle, vehicle_handle)
             self.cameras.append(camera_handle)
             self.envs.append(env_handle)
             self.vehicle_handles.append(vehicle_handle)
+        # print(dof_props['driveMode'])
+        # print(dof_props["stiffness"])
+        # print(dof_props["damping"])
         # print(self.cameras)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.camera_video = cv2.VideoWriter('video1.mp4', fourcc, 15.0, (self.camera_width, self.camera_height))
@@ -353,8 +343,6 @@ class Vehicle(VecTask):
             self.episode_sums[key][env_ids]= 0.
         self.extras['episode']['terrain_level']=    torch.mean(self.terrain_levels.float())
 
-
-
     def update_terrain_level(self, env_ids):    #TODO：
         if not self.init_done or not self.curriculum:
             return
@@ -364,46 +352,48 @@ class Vehicle(VecTask):
         self.terrain_levels[env_ids] = torch.clip(self.terrain_levels[env_ids], 0) % self.terrain.env_rows
         self.env_origins[env_ids] = self.terrain_origins[self.terrain_levels[env_ids], self.terrain_types[env_ids]]
 
-
-    def check_termination(self):    #TODO: 确定一些终止条件
+    def check_termination(self):
         self.reset_buf = torch.norm(self.contact_forces[:, self.base_index, :], dim=1) > 1.     #base 的力
+        # print(self.contact_forces[0])
+        # print(self.contact_forces.shape)
         # print(torch.sum(self.reset_buf.cpu()))
         # print(self.contact_forces[:, self.base_index, :].cpu().numpy())
-        # print(self.reset_buf)
-        #six wheels left the plane
         self.reset_buf|=torch.norm(self.contact_forces[:,self.slider_index,:],dim=1)>1
         # print(torch.sum(self.reset_buf.cpu()))
+
+        #six wheels left the plane
         contact=self.contact_forces[:, self.wheel_index, 2]>1.
         # print(~torch.any(contact, dim=1))
         self.reset_buf |=~torch.any(contact, dim=1)
         # print(torch.sum(self.reset_buf.cpu()))
-        # print(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))
-        # if len(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))>0:       #车轮长时间滞空则重置
-            # self.reset_idx(torch.unique((self.wheel_air_time>0.5).nonzero()[:,0]))
+
         # print(torch.any(self.wheel_air_time>0.5, dim=1))
-        self.reset_buf |= torch.any(self.wheel_air_time>self.wheel_air_tips, dim=1)
+        self.reset_buf |= torch.any(self.wheel_air_time>self.wheel_air_tips, dim=1)     #车轮长时间滞空则重置
+        # print(torch.sum(self.reset_buf.cpu()))
 
         #orientation >45度
         # print("self.reset_buf2", self.reset_buf)
         # torch.unique((self.wheel_air_time > 0.5).nonzero()[:, 0])
 
         self.reset_buf |= torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
-        # print(self.reset_buf)
         # print(torch.sum(self.reset_buf.cpu()))
-
+        # print("---------------------------------------------")
 
     def compute_observations(self):
         self.measured_heights=self.get_heights()
         heights=torch.clip(self.root_states[:,2].unsqueeze(1)-self.measured_heights, -1, 1.) * self.height_meas_scale
-        self.obs_buf=torch.cat((self.base_lin_vel*self.lin_vel_scale,
-                                self.base_ang_vel*self.ang_vel_scale,
-                                self.projected_gravity,
-                                self.commands[:, :3]*self.commands_scale,
-                                self.dof_pos*self.dof_pos_scale,
+        self.obs_buf=torch.cat((self.dof_pos*self.dof_pos_scale,
                                 self.dof_vel*self.dof_vel_scale,
                                 self.actions,
+                                self.commands[:, :3] * self.commands_scale,
+                                self.base_lin_vel * self.lin_vel_scale,
+                                self.base_ang_vel * self.ang_vel_scale,
+                                self.projected_gravity,
+                                # self.torques,
+                                # self.contact_forces,
                                 heights,), dim=-1)
-
+        print(self.dof_pos.shape)
+        print(self.dof_vel.shape)
 
     def compute_reward(self):
         # velocity tracking reward
@@ -474,25 +464,26 @@ class Vehicle(VecTask):
         # self.episode_sums["stumble"] += rew_stumble
         self.episode_sums["action_rate"] += rew_action_rate
 
-
     def pre_physics_step(self, actions):
         self.actions=actions.clone().to(self.device)
         actions=torch.max(torch.min(actions, self.action_upper_limit), self.action_lower_limit)     # 将actions限制
         self.actions[:,self.slider_index-1]=0.0     #将中间轴的运动设置为0
         for i in self.fl_lift1_index:
             self.actions[:, i]= -self.actions[:, i-1]
+
         # self.actions=torch.zeros(32, 25, dtype=torch.float32, device="cuda:0")
         # actions=torch.tensor([0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0, 0, 0.2, -0.2, 0, 0, 0.2, -0.2, 0, 0], dtype=torch.float32, device=self.device)
         # self.actions=actions.repeat(32, 1)
         # for i in self.wheel_dof_index:
         #     self.actions[:, i]=-2
+
         for i in self.steer_dof_index:
             self.actions[:, i]=0
         # print(self.steer_dof_index)
         # print(self.actions.detach().cpu().numpy()[0])
         # 一次控制多步运动
         for i in range(self.decimation):
-            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -800, 800)     #TODO:急需修改 80完全控制不了
+            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -800, 800)
             self.torques = torques.view(self.torques.shape)
             # print(self.torques[0])
             # print(self.dof_pos[0])
@@ -504,12 +495,10 @@ class Vehicle(VecTask):
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
 
-
-
     def post_physics_step(self):
         # self.gym.refresh_dof_state_tensor(self.sim) # done in step
         self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_net_contact_force_tensor(self.sim)     #TODO:why?
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
         self.progress_buf += 1
         self.randomize_buf += 1
@@ -528,7 +517,8 @@ class Vehicle(VecTask):
 
         self.check_termination()
         self.compute_reward()
-        self.play_video()
+        if self.cfg.env.enableCameraSensors:
+            self.play_video()
 
 
         env_ids=self.reset_buf.nonzero(as_tuple=False).flatten()
@@ -558,7 +548,6 @@ class Vehicle(VecTask):
                     sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
                     gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
-
     def _get_noise_scale_vec(self, cfg):
         noise_vec=torch.zeros_like(self.obs_buf[0])
         self.add_noise = self.cfg["env"]["learn"]["addNoise"]
@@ -572,16 +561,14 @@ class Vehicle(VecTask):
 
         return noise_vec
 
-
     def push_robots(self):  #刷新无人车的车身线速度
         self.root_states[:, 7:9]=torch_rand_float(-1, 1, (self.num_envs, 2), device=self.device)
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
-
     def init_height_points(self):
         y = 0.1*torch.tensor([-5,-4,-3,-2,-1,1,2,3,4,5], device=self.device, requires_grad=False)# 10-50cm on each side
         x = 0.1*torch.tensor([-8, -7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7, 8], device=self.device, requires_grad=False) # 20-80cm on each side
-        grid_x, grid_y = torch.meshgrid(x, y)
+        grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
         self.num_height_points=grid_x.numel()
         points=torch.zeros(self.num_envs, self.num_height_points, 3, device=self.device, requires_grad=False)
         points[:,:,0]=grid_x.flatten()
@@ -595,14 +582,13 @@ class Vehicle(VecTask):
         camera_props.enable_tensors=self.cfg.env.viewer.enable_tensors
         camera_handle=self.gym.create_camera_sensor(env, camera_props)
 
-        body_handle=self.gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
-
+        # body_handle=self.gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
+        body_handle=0
         transform=gymapi.Transform()
         transform.p = gymapi.Vec3(*self.cfg.env.viewer.camera_pos)
         transform.r = gymapi.Quat.from_axis_angle(gymapi.Vec3(*self.cfg.env.viewer.camera_axis), np.radians(self.cfg.env.viewer.camera_angle))
         self.gym.attach_camera_to_body(camera_handle, env, body_handle, transform, gymapi.FOLLOW_TRANSFORM)
         return camera_handle
-
 
     def play_video(self):
         # _camera_tensor=self.gym.get_camera_image_gpu_tensor(self.sim, self.envs[0], self.cameras[0], gymapi.IMAGE_COLOR)
@@ -629,9 +615,7 @@ class Vehicle(VecTask):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 self.break_=True
 
-
-
-    def get_heights(self, env_ids=None): #TODO: not finish
+    def get_heights(self, env_ids=None):
         if self.cfg['env']['terrain']['terrainType'] == "plane":
             return torch.zeros(self.num_envs, self.num_height_points, device=self.device, requires_grad=False)
         elif self.cfg["env"]["terrain"]["terrainType"] == 'none':
@@ -790,14 +774,15 @@ class Terrain():
                 if j < left_over:
                     robots_in_map+=1
 
-                env_origin_x=(i+0.5) * self.env_length
+                env_origin_x=(i-0.5) * self.env_length
                 env_origin_y=(j+0.5) * self.env_width
 
                 x1= int((self.env_length/2-1)/self.horizontal_scale)
                 x2= int((self.env_length/2+1)/self.horizontal_scale)
                 y1= int((self.env_width/2-1)/self.horizontal_scale)
                 y2= int((self.env_width/2+1)/self.horizontal_scale)
-                env_origin_z=np.max(terrain.height_field_raw[x1:x2, y1:y2])* self.vertical_scale
+                # env_origin_z=np.max(terrain.height_field_raw[x1:x2, y1:y2])* self.vertical_scale
+                env_origin_z=0.
                 self.env_origins[i,j] = [env_origin_x, env_origin_y, env_origin_z]
 
 

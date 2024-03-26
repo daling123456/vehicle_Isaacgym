@@ -86,7 +86,7 @@ env:
     file: "urdf/vehicle/cwego.urdf"
     footName: SHANK # SHANK if collapsing fixed joint, FOOT otherwise
     lift1Name: THIGH
-    collapseFixedJoints: True
+    collapseFixedJoints: true
     fixBaseLink: false
     defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
 
@@ -94,7 +94,7 @@ env:
     allowlift1Contacts: true
     # rewards
     terminalReward: 0.0
-    linearVelocityXYRewardScale: 1
+    linearVelocityXYRewardScale: 10
     linearVelocityZRewardScale: -0.05
     angularVelocityXYRewardScale: -0.05
     angularVelocityZRewardScale: 0.0
@@ -146,9 +146,9 @@ env:
     camera_width: 640
     camera_height: 640
     enable_tensors: true
-    camera_pos: [0,0,0]
+    camera_pos: [2.1,0,1]
     camera_axis: [0,1,0]
-    camera_angle: 10
+    camera_angle: 0
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False

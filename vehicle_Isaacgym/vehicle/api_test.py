@@ -95,7 +95,7 @@ def load_assets(sim):
     asset_options=gymapi.AssetOptions()
     asset_options.armature = 0.0
     asset_options.flip_visual_attachments = True
-    # asset_options.collapse_fixed_joints=True
+    asset_options.collapse_fixed_joints=True
     # asset_options.fix_base_link = True
     # asset_options.use_mesh_materials = True
     asset_options.disable_gravity=False
@@ -121,13 +121,13 @@ def env_actor_create(sim,asset, num_envs):
         gym.enable_actor_dof_force_sensors(env, actor_handle)
         camera_actor_handle = gym.find_actor_rigid_body_handle(env, actor_handle, "camera_link")
         # print("camera_handle:", camera_actor_handle)
-        loc = [0, 0, 0.]
+        loc = [2.1, 0, 1.]
         target_loc = [1, 0, 0]
         angle = torch.tensor(10)
         image_width = 640
         image_height = 640
 
-        camera_handle = camera_sensors(env, camera_actor_handle, loc, target_locs=target_loc, angle=angle,
+        camera_handle = camera_sensors(env, 0, loc, target_locs=target_loc, angle=angle,
                                        image_width=image_width, image_height=image_height)
         cameras.append(camera_handle)
         # print(camera_handle)
@@ -170,8 +170,8 @@ def set_dof_props(envs, ActorHandles):
         props=gym.get_actor_dof_properties(envs[j], ActorHandles[j],)
         # print(props['driveMode'])
         props["driveMode"].fill(gymapi.DOF_MODE_POS)
-        props["stiffness"].fill(400000.0)
-        props["damping"].fill(20000.0)
+        props["stiffness"].fill(40000.0)
+        props["damping"].fill(2000.0)
         wheel_index, num_wheel = find_wheel_index()
         for i in wheel_index:
             props["driveMode"][i]=gymapi.DOF_MODE_VEL
@@ -368,7 +368,7 @@ def wheel_moving(actorhandle, dof_states_moving_targets, target_vel):
         dof_states_moving_targets[i]+=-20
     # print(dof_states_moving_targets)
     # set_dof_velocity(actorhandle=actorhandle, dof_vel_targets=dof_states_moving_targets)
-    # set_dof_state(props=props, actorhandle=actorhandle, dof_states_stand_targets=dof_states_moving_targets)
+    # set_dof_state( actorhandle=actorhandle, dof_states_stand_targets=dof_states_moving_targets)
 
     # print(dof_states_moving_targets)
     # set_dof_pos_target(actorhandle, dof_states_moving_targets)
@@ -502,16 +502,22 @@ if __name__=="__main__":
     gym=gymapi.acquire_gym()
     sim=create_sim()
     create_plane(sim)
-    create_terrain()
+    # create_terrain()
     asset=load_assets(sim)
-    envs, actor_handles, out, cameras=env_actor_create(sim,asset, num_envs=32)
+    envs, actor_handles, out, cameras=env_actor_create(sim,asset, num_envs=1)
     # initial_state = np.copy(gym.get_sim_rigid_body_states(sim, gymapi.STATE_ALL))
     viewer=create_viewer(sim)
     gym.prepare_sim(sim)
     ########计算bodies、joints、dofs的数量###########
-    env=envs[10]
-    actor_handle=actor_handles[10]
+    env=envs[0]
+    actor_handle=actor_handles[0]
     num_bodies=gym.get_actor_rigid_body_count(env, actor_handle)
+    actor_props=gym.get_actor_rigid_body_properties(env, actor_handle)
+    for properties in actor_props:
+        mass = properties.mass
+        print(f"刚体质量: {mass}")
+    # print(actor_props[:].mass)
+    # print(gymtorch.wrap_tensor(actor_props))
 
     # print(gym.get_actor_joint_transforms(env, actor_handle))
     image_width = 640
@@ -584,6 +590,7 @@ if __name__=="__main__":
         gym.render_all_camera_sensors(sim)
 
         # print(viewer)
+        # print(contact_force[:, 0, :])
 
         color_image=gym.get_camera_image(sim, env, cameras[0], gymapi.IMAGE_COLOR)
         # print("----------------------------")
@@ -627,8 +634,8 @@ if __name__=="__main__":
         # turn_around(actor_handle,positions_tensor,target_vel)
         # to_limit=slider_translate(props=props,actorhandle=actor_handle,dof_states_moving_targets=dof_states_moving_targets,target_vel=target_vel,)
         # to_limit=wheel_rise("fr",actorhandle=actor_handle, dof_states_moving_targets=dof_states_moving_targets, target_vel=target_vel,)
-        # to_limit=front_wheel_rise(actor_handle, dof_states_moving_targets, target_vel)
-
+        to_limit=front_wheel_rise(actor_handle, dof_states_moving_targets, target_vel)
+        #
         # wheel_moving(actorhandle=actor_handle, dof_states_moving_targets=velocity_tensor, target_vel=0.01)
 
         # to_limit1,to_limit2, target_vel1, target_vel2=middle_wheel_cycle(props=props,actorhandle=actor_handle,dof_states_moving_targets=dof_states_moving_targets,target_vel1=target_vel1, target_vel2=target_vel2,to_limit1=to_limit1,to_limit2=to_limit2)

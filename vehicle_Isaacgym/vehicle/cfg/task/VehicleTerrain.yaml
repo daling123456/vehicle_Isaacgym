@@ -38,7 +38,7 @@ env:
 #    linear_x: [1., 2.] # min max [m/s]
 #    linear_y: [1., 2.]   # min max [m/s]
 #    yaw: [-3.14, 3.14]    # min max [rad/s]
-    linear_x: [ 1., 1. ] # min max [m/s]
+    linear_x: [ 5., 5. ] # min max [m/s]
     linear_y: [ 0., 0. ]   # min max [m/s]
     yaw: [ 0, 0 ]    # min max [rad/s]
 
@@ -94,14 +94,14 @@ env:
     allowlift1Contacts: true
     # rewards
     terminalReward: 0.0
-    linearVelocityXYRewardScale: 0.1
+    linearVelocityXYRewardScale: 1
     linearVelocityZRewardScale: -0.05
     angularVelocityXYRewardScale: -0.05
     angularVelocityZRewardScale: 0.0
     orientationRewardScale: -1 #-1.
     torqueRewardScale: -0.00002 # -0.000025
     jointAccRewardScale: -0.0005 # -0.0025
-    baseHeightRewardScale: 0 #5
+    baseHeightRewardScale: -5 #5
     wheelAirTimeRewardScale:  -0.1
     basecontactRewardScale: -0.0000025
     wheelStumbleRewardScale: -0. #-2.0

@@ -81,7 +81,7 @@ class VEHICLETERRAINPPO:
                 ep_infos=[]
 
                 for _ in range(self.num_transitions_per_env):
-
+                    # print("------------------------")
                     actions, actions_log_prob, values, mu, sigma=self.actor_critic.act(current_obs)
                     # actions=torch.clamp(actions, )
                     next_obs, rewards, dones, infos=self.vec_env.step(actions)

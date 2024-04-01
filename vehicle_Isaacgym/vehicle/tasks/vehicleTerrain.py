@@ -74,8 +74,8 @@ class VehicleTerrain(VecTask):
         # reward scales
         self.print_reward=self.cfg['env']['learn']['printreward']
         self.rew_scales = {}
-        self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"]
-        self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"]
+        self.rew_scales["lin_vel_x"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"]
+        self.rew_scales["lin_vel_yz"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"]
         self.rew_scales["ang_vel_z"] = self.cfg["env"]["learn"]["angularVelocityZRewardScale"]
         self.rew_scales["ang_vel_xy"] = self.cfg["env"]["learn"]["angularVelocityXYRewardScale"]
         self.rew_scales["joint_acc"] = self.cfg["env"]["learn"]["jointAccRewardScale"]
@@ -142,9 +142,9 @@ class VehicleTerrain(VecTask):
         self.episode_sums = {"lin_vel_x": torch_zeros(), "lin_vel_yz": torch_zeros(), "ang_vel_z": torch_zeros(),       #TODO:  修改
                              "ang_vel_xy": torch_zeros(),
                              "orient": torch_zeros(), "torques": torch_zeros(), "joint_acc": torch_zeros(),
-                             "base_height": torch_zeros(),
-                             "air_time": torch_zeros(), "collision": torch_zeros(), "stumble": torch_zeros(),
-                             "action_rate": torch_zeros(), "hip": torch_zeros()}
+                             "base_height": torch_zeros(), "base_contact": torch_zeros(),
+                             "airTime": torch_zeros(), "collision": torch_zeros(), "stumble": torch_zeros(),
+                             "action_rate": torch_zeros(), "hip": torch_zeros(), "total": torch_zeros()}
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.init_done=True
@@ -414,13 +414,13 @@ class VehicleTerrain(VecTask):
         # lin_vel_error = torch.sum(torch.square(self.commands[:, 0] - self.base_lin_vel[:, 0]), dim=1)
         lin_vel_error = torch.square(self.commands[:, 0] - self.base_lin_vel[:, 0])
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_xy']
+        rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_x']
         rew_ang_vel_z=torch.exp(-ang_vel_error/0.25)*self.rew_scales['ang_vel_z']
         # print(self.base_lin_vel[:, 0])
 
         # other base velocity penalties
-        # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_z"]
-        rew_lin_vel_yz = torch.sum(torch.square(self.base_lin_vel[:, 1:3]), dim=1) * self.rew_scales["lin_vel_z"]
+        # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_yz"]
+        rew_lin_vel_yz = torch.sum(torch.square(self.base_lin_vel[:, 1:3]), dim=1) * self.rew_scales["lin_vel_yz"]
         rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.rew_scales["ang_vel_xy"]
 
         # 5 orientation penalty（pitch roll）
@@ -460,6 +460,7 @@ class VehicleTerrain(VecTask):
                       + rew_airTime + rew_base_contact
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
+        rew_total=self.rew_buf
         if self.print_reward:
             print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
                   f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
@@ -473,10 +474,15 @@ class VehicleTerrain(VecTask):
         self.episode_sums["ang_vel_z"] += rew_ang_vel_z
         self.episode_sums["lin_vel_yz"] += rew_lin_vel_yz
         self.episode_sums["ang_vel_xy"] += rew_ang_vel_xy
-        # self.episode_sums["torques"] += rew_torque
+        self.episode_sums["torques"] += rew_torque
         self.episode_sums["joint_acc"] += rew_joint_acc
-        # self.episode_sums["stumble"] += rew_stumble
+        self.episode_sums["stumble"] += rew_stumble
         self.episode_sums["action_rate"] += rew_action_rate
+        self.episode_sums["orient"] += rew_orient
+        self.episode_sums["base_height"] += rew_base_height
+        self.episode_sums["airTime"] += rew_airTime
+        self.episode_sums["base_contact"] += rew_base_contact
+        self.episode_sums["total"] += rew_total
 
 
     def pre_physics_step(self, actions):

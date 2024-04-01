@@ -2,17 +2,18 @@ import copy
 import os.path
 import time
 
-import wandb
 import torch
+import wandb
+import cv2
 from gym.spaces import Space
 import torch.optim as optim
 import torch.nn as nn
 
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehicleTerrainPPO.module import ActorCritic
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehicleTerrainPPO.storage import RolloutStorage
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.module import ActorCritic
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.storage import RolloutStorage
 
 
-class VEHICLETERRAINPPO:
+class CWEGOPPO:
     def __init__(self,vec_env, cfg_train, device='cpu', sampler='sequential',log_dir='run', print_log=True, is_testing=False, apply_reset=False, asymmetric=False):
         if not isinstance(vec_env.observation_space, Space):
             raise TypeError("vec_env.observation_space must be a gym Space")
@@ -48,30 +49,32 @@ class VEHICLETERRAINPPO:
         self.schedule = learn_cfg.get("schedule", "fixed")
         self.step_size = learn_cfg["optim_stepsize"]
 
+        self.history_length=self.cfg_train["policy"]["actor"]["tsteps"]
+
 
         #PPO compoment
         self.vec_env=vec_env
-        self.actor_critic=ActorCritic(self.observation_space.shape, self.action_space.shape,
-                                      self.init_noise_std, self.model_cfg).to(self.device)
-        self.storage=RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape, self.action_space.shape, self.device, sampler=sampler)
+        self.actor_critic=ActorCritic(self.observation_space.shape, self.action_space.shape, self.init_noise_std, self.model_cfg).to(self.device)
+        self.storage=RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape, self.action_space.shape, self.history_length, self.device, sampler=sampler)
         self.optimizer=optim.Adam(self.actor_critic.parameters(), lr=self.learning_rate)
 
         #log
         self.log_dir = log_dir
         self.current_learning_iterations = 0
+        self.wandb=self.cfg_train["learn"]["wandb"]
 
-        self.wandb = self.cfg_train["learn"]["wandb"]
 
     def run(self, num_learning_iterations, log_interval=1):
-        if self.wandb:
-            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="VI_train_1", dir=self.log_dir+"/wandb")
         current_obs=self.vec_env.reset()['obs']
+        if self.wandb:
+            wandb.init(project="terrain_rewards_1", entity="vehicle_isaacgym", name="test_curves_6", dir=self.log_dir+"/wandb")
+            # wandb.save(self.log_dir+'/env.hpp')
+
         if self.is_testing:
             while True:
-
                 with torch.no_grad():
-
-                    actions=self.actor_critic.act_inference(current_obs)
+                    self.obs_history = self.storage.states
+                    actions=self.actor_critic.act_inference(current_obs, self.obs_history)
                     # print(actions)
                     next_obs, rewards, dones, infos=self.vec_env.step(actions)
                     # print(torch.sum(rewards))
@@ -85,8 +88,8 @@ class VEHICLETERRAINPPO:
                 ep_infos=[]
 
                 for _ in range(self.num_transitions_per_env):
-                    # print("------------------------")
-                    actions, actions_log_prob, values, mu, sigma=self.actor_critic.act(current_obs)
+                    self.obs_history = self.storage.states
+                    actions, actions_log_prob, values, mu, sigma=self.actor_critic.act(current_obs, self.obs_history)
                     # actions=torch.clamp(actions, )
                     next_obs, rewards, dones, infos=self.vec_env.step(actions)
                     # print(torch.sum(rewards))
@@ -96,7 +99,11 @@ class VEHICLETERRAINPPO:
 
                     ep_infos.append(infos)
 
-                _, _, last_values, _, _=self.actor_critic.act(current_obs)
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    if self.vec_env.break_:
+                        break
+
+                _, _, last_values, _, _=self.actor_critic.act(current_obs, self.obs_history)
                 stop=time.time()
                 colletion_time=stop-start
                 # print("colletion_time",colletion_time)
@@ -117,6 +124,7 @@ class VEHICLETERRAINPPO:
                 stop=time.time()
                 learn_time=stop-start
                 # print("learn_time",learn_time
+
                 if self.wandb:
                     wandb.log({"lin_vel_x": self.vec_env.extras['episode']['rew_lin_vel_x'], "lin_vel_yz": self.vec_env.extras['episode']['rew_lin_vel_yz'],
                                "ang_vel_z": self.vec_env.extras['episode']['rew_ang_vel_z'], "ang_vel_xy": self.vec_env.extras['episode']['rew_ang_vel_xy'],
@@ -124,10 +132,13 @@ class VEHICLETERRAINPPO:
                                "joint_acc": self.vec_env.extras['episode']['rew_joint_acc'],"base_height": self.vec_env.extras['episode']['rew_base_height'],
                                "airtime": self.vec_env.extras['episode']['rew_airTime'], "base_contact": self.vec_env.extras['episode']['rew_base_contact'],
                                "stumble": self.vec_env.extras['episode']['rew_stumble'],"action_rate": self.vec_env.extras['episode']['rew_action_rate'],
-                               "total_rewards": self.vec_env.extras['episode']['rew_total'],
+                               "total_rewards": self.vec_env.extras['episode']['total_rewards']
                     }, step=it)
+
             self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))
             wandb.finish()
+
+
 
 
 
@@ -138,6 +149,7 @@ class VEHICLETERRAINPPO:
         batch=self.storage.mini_batch_generator(self.num_mini_batches)
         for epoch in range(self.num_learning_epochs):
             for indices in batch:
+                # print(indices)
                 obs_batch=self.storage.observations.view(-1, *self.storage.observations.size()[2:])[indices]        #去除reset的观测？
                 act_batch=self.storage.actions.view(-1, self.storage.actions.size(-1))[indices]
                 target_values_batch=self.storage.values.view(-1, 1)[indices]
@@ -146,8 +158,9 @@ class VEHICLETERRAINPPO:
                 advantages_batch= self.storage.advantages.view(-1,1)[indices]
                 old_mu_batch=self.storage.mu.view(-1, self.storage.actions.size(-1))[indices]
                 old_sigma_batch=self.storage.sigma.view(-1, self.storage.actions.size(-1))[indices]
+                obs_history=torch.cat((obs_batch, act_batch), dim=1)
 
-                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch=self.actor_critic.evaluate(obs_batch, act_batch)
+                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch=self.actor_critic.evaluate(obs_batch, act_batch, self.obs_history)
 
 
                 if self.desired_kl !=None and self.schedule == 'adaptive':

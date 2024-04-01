@@ -409,12 +409,12 @@ def turn_around(actorhandle, dof_states_moving_targets, target_vel):
 
 
 def front_wheel_rise(actorhandle, dof_states_moving_targets,target_vel):
-    to_limit1=wheel_rise("fl", actorhandle, dof_states_moving_targets, target_vel)
-    to_limit2=wheel_rise("fr", actorhandle, dof_states_moving_targets, target_vel)
+    # to_limit1=wheel_rise("fl", actorhandle, dof_states_moving_targets, target_vel)
+    # to_limit2=wheel_rise("fr", actorhandle, dof_states_moving_targets, target_vel)
     to_limit1 = wheel_rise("ml", actorhandle, dof_states_moving_targets, target_vel)
     to_limit2 = wheel_rise("mr", actorhandle, dof_states_moving_targets, target_vel)
-    to_limit1 = wheel_rise("rl", actorhandle, dof_states_moving_targets, target_vel)
-    to_limit2 = wheel_rise("rr", actorhandle, dof_states_moving_targets, target_vel)
+    # to_limit1 = wheel_rise("rl", actorhandle, dof_states_moving_targets, target_vel)
+    # to_limit2 = wheel_rise("rr", actorhandle, dof_states_moving_targets, target_vel)
     to_limit=to_limit1 and to_limit2
     return to_limit
 

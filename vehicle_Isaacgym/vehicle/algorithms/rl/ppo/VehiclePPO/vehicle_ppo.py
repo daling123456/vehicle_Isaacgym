@@ -3,6 +3,7 @@ import os.path
 import time
 
 import torch
+import wandb
 import cv2
 from gym.spaces import Space
 import torch.optim as optim
@@ -60,13 +61,17 @@ class VEHICLEPPO:
         #log
         self.log_dir = log_dir
         self.current_learning_iterations = 0
+        self.wandb=self.cfg_train["learn"]["wandb"]
 
 
     def run(self, num_learning_iterations, log_interval=1):
         current_obs=self.vec_env.reset()['obs']
+        if self.wandb:
+            wandb.init(project="terrain_rewards_1", entity="vehicle_isaacgym", name="test_curves_6", dir=self.log_dir+"/wandb")
+            # wandb.save(self.log_dir+'/env.hpp')
+
         if self.is_testing:
             while True:
-
                 with torch.no_grad():
                     self.obs_history = self.storage.states
                     actions=self.actor_critic.act_inference(current_obs, self.obs_history)
@@ -119,7 +124,21 @@ class VEHICLEPPO:
                 stop=time.time()
                 learn_time=stop-start
                 # print("learn_time",learn_time
+
+                if self.wandb:
+                    wandb.log({"lin_vel_x": self.vec_env.extras['episode']['rew_lin_vel_x'], "lin_vel_yz": self.vec_env.extras['episode']['rew_lin_vel_yz'],
+                               "ang_vel_z": self.vec_env.extras['episode']['rew_ang_vel_z'], "ang_vel_xy": self.vec_env.extras['episode']['rew_ang_vel_xy'],
+                               "orient": self.vec_env.extras['episode']['rew_orient'], "torques": self.vec_env.extras['episode']['rew_torques'],
+                               "joint_acc": self.vec_env.extras['episode']['rew_joint_acc'],"base_height": self.vec_env.extras['episode']['rew_base_height'],
+                               "airtime": self.vec_env.extras['episode']['rew_airTime'], "base_contact": self.vec_env.extras['episode']['rew_base_contact'],
+                               "stumble": self.vec_env.extras['episode']['rew_stumble'],"action_rate": self.vec_env.extras['episode']['rew_action_rate'],
+                               "total_rewards": self.vec_env.extras['episode']['total_rewards']
+                    }, step=it)
+
             self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))
+            wandb.finish()
+
+
 
 
 

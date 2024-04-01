@@ -16,7 +16,7 @@ learn:
   print_log: True
 
   # rollout params
-  max_iterations: 65000
+  max_iterations: 20000
 
   # training params
   cliprange: 0.2
@@ -34,6 +34,7 @@ learn:
 
   log_interval: 1
   asymmetric: False
+  wandb: ${wandb}
 params:
   seed: ${...seed}
 

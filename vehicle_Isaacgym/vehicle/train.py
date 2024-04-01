@@ -11,6 +11,7 @@ from vehicle_Isaacgym.vehicle.algorithms.rl.ppo import PPO
 from vehicle_Isaacgym.vehicle.algorithms.rl.dpg import DDPG
 from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.vehicle_ppo import VEHICLEPPO
 from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehicleTerrainPPO.vehicleterrain_ppo import VEHICLETERRAINPPO
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.CwegoPPO.cwego_ppo import CWEGOPPO
 
 
 def process_sarl(cfg, env, cfg_train, cfg_task):

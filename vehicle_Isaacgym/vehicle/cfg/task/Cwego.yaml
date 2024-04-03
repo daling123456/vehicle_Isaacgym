@@ -5,7 +5,7 @@ physics_engine: 'physx'
 
 env:
   numEnvs: ${num_envs}
-  numObservations: 227
+  numObservations: 631
   numActions: 25
   envSpacing: 5.  # [m]
   enableDebugVis: False

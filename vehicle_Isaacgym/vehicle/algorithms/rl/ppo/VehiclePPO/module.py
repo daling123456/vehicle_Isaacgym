@@ -373,7 +373,6 @@ class StateHistoryEncoder(nn.Module):
     def forward(self, obs):
         bs=obs.shape[0]
         T=self.tsteps
-        # print(obs.shape)
         # projection=self.encoder(obs.reshape(bs*T, -1))
         # projection = self.encoder(obs)
         output=self.conv_layers(obs)

@@ -9,8 +9,8 @@ from gym.spaces import Space
 import torch.optim as optim
 import torch.nn as nn
 
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.module import ActorCritic
-from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.VehiclePPO.storage import RolloutStorage
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.CwegoPPO.module import ActorCritic
+from vehicle_Isaacgym.vehicle.algorithms.rl.ppo.CwegoPPO.storage import RolloutStorage
 
 
 class CWEGOPPO:
@@ -66,8 +66,9 @@ class CWEGOPPO:
 
     def run(self, num_learning_iterations, log_interval=1):
         current_obs=self.vec_env.reset()['obs']
+        # print(current_obs.shape)
         if self.wandb:
-            wandb.init(project="terrain_rewards_1", entity="vehicle_isaacgym", name="test_curves_6", dir=self.log_dir+"/wandb")
+            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="CW_train_1", dir=self.log_dir+"/wandb")
             # wandb.save(self.log_dir+'/env.hpp')
 
         if self.is_testing:
@@ -132,7 +133,7 @@ class CWEGOPPO:
                                "joint_acc": self.vec_env.extras['episode']['rew_joint_acc'],"base_height": self.vec_env.extras['episode']['rew_base_height'],
                                "airtime": self.vec_env.extras['episode']['rew_airTime'], "base_contact": self.vec_env.extras['episode']['rew_base_contact'],
                                "stumble": self.vec_env.extras['episode']['rew_stumble'],"action_rate": self.vec_env.extras['episode']['rew_action_rate'],
-                               "total_rewards": self.vec_env.extras['episode']['total_rewards']
+                               "total_rewards": self.vec_env.extras['episode']['rew_total']
                     }, step=it)
 
             self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))

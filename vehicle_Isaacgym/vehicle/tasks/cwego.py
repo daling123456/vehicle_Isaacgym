@@ -155,7 +155,7 @@ class Cwego(VecTask):
                              "orient": torch_zeros(), "torques": torch_zeros(), "joint_acc": torch_zeros(),
                              "base_height": torch_zeros(), "base_contact": torch_zeros(),
                              "airTime": torch_zeros(), "collision": torch_zeros(), "stumble": torch_zeros(),
-                             "action_rate": torch_zeros(), "hip": torch_zeros(), "total_rewards": torch_zeros()}
+                             "action_rate": torch_zeros(), "hip": torch_zeros(), "total": torch_zeros()}
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.init_done=True
@@ -393,20 +393,23 @@ class Cwego(VecTask):
         # print("---------------------------------------------")
 
     def compute_observations(self):
+        # self.torques=self.gym.get_actor_dof_forces(self.envs[0], self.vehicle_handles[0])
+        # print(self.torques.shape)
+
         self.measured_heights=self.get_heights()
         heights=torch.clip(self.root_states[:,2].unsqueeze(1)-self.measured_heights, -1, 1.) * self.height_meas_scale
-        self.obs_buf=torch.cat((self.dof_pos*self.dof_pos_scale,
-                                self.dof_vel*self.dof_vel_scale,
-                                self.commands[:, :3] * self.commands_scale,
-                                self.base_lin_vel * self.lin_vel_scale,
-                                self.base_ang_vel * self.ang_vel_scale,
-                                self.actions,
-                                self.projected_gravity,
-                                # self.torques,
-                                # self.contact_forces,
-                                heights,), dim=-1)
-        # print(self.dof_pos.shape)
-        # print(self.dof_vel.shape)
+        self.obs_buf=torch.cat((self.dof_pos*self.dof_pos_scale,    #25
+                                self.dof_vel*self.dof_vel_scale,    #25
+                                self.commands[:, :3] * self.commands_scale,     #3
+                                self.projected_gravity,     #3
+                                self.base_lin_vel * self.lin_vel_scale,     #3
+                                self.base_ang_vel * self.ang_vel_scale,     #3
+                                self.actions,       #25
+                                # self.torques,     #25
+                                self.contact_forces[:,:,0],         #26
+                                self.contact_forces[:,:,2],        #26
+                                heights,        #41x12=492
+                                ), dim=1)
         if self.cfg.env.terrain.use_pcd:
             self.terrain_map()
 
@@ -470,6 +473,7 @@ class Cwego(VecTask):
                       + rew_airTime + rew_base_contact
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
+        rew_total=self.rew_buf
         if self.print_reward:
             print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
                   f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
@@ -491,7 +495,7 @@ class Cwego(VecTask):
         self.episode_sums["base_height"] += rew_base_height
         self.episode_sums["airTime"] += rew_airTime
         self.episode_sums["base_contact"] += rew_base_contact
-        self.episode_sums["total_rewards"] += self.rew_buf
+        self.episode_sums["total"] += rew_total
         # self.episode_sums["lin_vel"] +=
 
 
@@ -518,7 +522,8 @@ class Cwego(VecTask):
             # torques_vel=torch.clip(self.Kp_v*(self.action_scale*self.actions+self.target_vel-self.dof_vel)-self.Kd_v*self.joint_acc, -10000, 10000)
 
             self.torques = torques.view(self.torques.shape)
-            # print(self.torques[0])
+            print(self.torques[0])
+            # print("--------------------------")
             # print(self.dof_pos[0])
             # self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))          # 神经网络输出的直接是torque控制wheel
@@ -598,17 +603,17 @@ class Cwego(VecTask):
         self.root_states[:, 7:9]=torch_rand_float(-1, 1, (self.num_envs, 2), device=self.device)
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
-    def init_height_points(self):
-        y = 0.1*torch.tensor([-5,-4,-3,-2,-1,1,2,3,4,5], device=self.device, requires_grad=False)# 10-50cm on each side
-        x = 0.1*torch.tensor([-8, -7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7, 8], device=self.device, requires_grad=False) # 20-80cm on each side
-        grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
-        self.num_height_points=grid_x.numel()
-        points=torch.zeros(self.num_envs, self.num_height_points, 3, device=self.device, requires_grad=False)
-        points[:,:,0]=grid_x.flatten()
-        points[:,:,1]=grid_y.flatten()
-        return points
+    # def init_height_points(self):
+    #     y = 0.1*torch.tensor([-5,-4,-3,-2,-1,1,2,3,4,5], device=self.device, requires_grad=False)# 10-50cm on each side
+    #     x = 0.1*torch.tensor([-8, -7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7, 8], device=self.device, requires_grad=False) # 20-80cm on each side
+    #     grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
+    #     self.num_height_points=grid_x.numel()
+    #     points=torch.zeros(self.num_envs, self.num_height_points, 3, device=self.device, requires_grad=False)
+    #     points[:,:,0]=grid_x.flatten()
+    #     points[:,:,1]=grid_y.flatten()
+    #     return points
 
-    def _init_height_points(self):
+    def init_height_points(self):
         y = 0.1 * torch.tensor([-10, -9, -8, -7, -6, -5, 5, 6, 7, 8, 9, 10], device=self.device,
                                requires_grad=False)  # 30-100cm on each side
         x = 0.1 * torch.tensor([-20, -19, -18, -17, -16, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], device=self.device,
@@ -687,9 +692,9 @@ class Cwego(VecTask):
         # print(heights.shape)
         points[:, :, 2]= heights.view(self.num_envs, -1)
         self.points=points
-        print(self.root_states[:, :3])
+        # print(self.root_states[:, :3])
 
-        return heights.view(self.num_envs, -1) * self.terrain.vertical_scale
+        return heights.view(self.num_envs, -1) * self.terrain.vertical_scale    #是否乘以self.terrain.vertical_scale
 
     def terrain_map(self):
         points = self.points[0].detach().cpu().numpy()

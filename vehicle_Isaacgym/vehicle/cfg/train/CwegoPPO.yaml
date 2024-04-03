@@ -1,5 +1,5 @@
 name: CWEGOPPO
-seed: -1
+seed: 42
 
 clip_observations: 5.0
 clip_actions: 1.0
@@ -12,21 +12,21 @@ policy: # only works for MlpPolicy right now
   output_activation_fn: tanh                        #激活函数
   small_init: false
   actor:
-      actor_hidden_shape: [1024, 1024, 512]
+      actor_hidden_shape: [512, 1024, 512]
       suspension_hidden_shape: [16, 32]
       steer_hidden_shape: [16, 32]
       prop_hidden_shape: [64, 32]
       geom_hidden_shape: [64, 32]
 
       geom_dim: 492
-      prop_dim: 0
+      prop_dim: 52
       vision_dim: 0
-      obs_dim: 226    #TODO:
+      obs_dim: 87    #TODO:
 
       history_latent_dim: 8
       vision_latent_dim: 0
       prop_latent_dim: 8
-      geom_latent_dim: 1
+      geom_latent_dim: 8
       suspension_latten_dim: 8
       steer_latten_dim: 8
 

@@ -17,7 +17,8 @@ class ActorCritic(nn.Module):
 
         self.device="cuda:0"
 
-        self.actor=MLPEncode(self.device, model_cfg, self.activation_fn, self.output_activation_fn, self.small_init)
+        # self.actor=MLPEncode(self.device, model_cfg, self.activation_fn, self.output_activation_fn, self.small_init)
+        self.actor=Actor(self.device, model_cfg, self.activation_fn, self.output_activation_fn, self.small_init)
         # self.critic=MLPEncode(self.device, model_cfg, *obs_shape, 1, self.actor_hidden_shape, self.activation_fn)
         self.critic=MLP(self.device, critic_shape, *obs_shape, 1, self.activation_fn, self.output_activation_fn)
 
@@ -38,15 +39,15 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
 
     def act(self, observations, obs_history):
-        action_latent= self.actor(observations)
-        history_latent=self.actor.get_history_encoding(obs_history)
-
-        suspend_latent=self.actor.get_suspend_latent(action_latent[:,:8], history_latent)
-        # print(suspend_latent)
-
-        steer_latent=self.actor.get_steer_latent(action_latent[:,8:])
-        actions_mean=torch.cat((suspend_latent, steer_latent), dim=1)
-        # actions_mean = self.actor(obs)
+        # action_latent= self.actor(observations)
+        # history_latent=self.actor.get_history_encoding(obs_history)
+        #
+        # suspend_latent=self.actor.get_suspend_latent(action_latent[:,:8], history_latent)
+        # # print(suspend_latent)
+        #
+        # steer_latent=self.actor.get_steer_latent(action_latent[:,8:])
+        # actions_mean=torch.cat((suspend_latent, steer_latent), dim=1)
+        actions_mean = self.actor(observations)
         # print(actions_mean.detach().cpu().numpy()[0])
 
         covariance = torch.diag(self.log_std.exp() * self.log_std.exp())
@@ -61,28 +62,29 @@ class ActorCritic(nn.Module):
         return actions.detach(), actions_log_prob.detach(), value.detach(), actions_mean.detach(), self.log_std.repeat(actions_mean.shape[0], 1).detach()
 
     def act_inference(self, observations, obs_history):
-        action_latent = self.actor(observations)
-        history_latent = self.actor.get_history_encoding(obs_history)
-
-        suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
-
-        steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
-        actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
+        # action_latent = self.actor(observations)
+        # history_latent = self.actor.get_history_encoding(obs_history)
+        #
+        # suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
+        #
+        # steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
+        # actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
+        actions_mean = self.actor(observations)
         return actions_mean
 
     def evaluate(self, observations, actions, obs_history):
         # print(observations.shape)
-        action_latent = self.actor(observations)
-        history_latent = self.actor.get_history_encoding(obs_history).float()
-        mean_history_latent=history_latent.mean(dim=0)
-        history_latent=mean_history_latent.unsqueeze(0)
-        history_latent=history_latent.repeat(observations.shape[0],1)
-
-        suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
-
-        steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
-        actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
-        # actions_mean = self.actor(observations)
+        # action_latent = self.actor(observations)
+        # history_latent = self.actor.get_history_encoding(obs_history).float()
+        # mean_history_latent=history_latent.mean(dim=0)
+        # history_latent=mean_history_latent.unsqueeze(0)
+        # history_latent=history_latent.repeat(observations.shape[0],1)
+        #
+        # suspend_latent = self.actor.get_suspend_latent(action_latent[:, :8], history_latent)
+        #
+        # steer_latent = self.actor.get_steer_latent(action_latent[:, 8:])
+        # actions_mean = torch.cat((suspend_latent, steer_latent), dim=1)
+        actions_mean = self.actor(observations)
 
         covariance = torch.diag(self.log_std.exp() * self.log_std.exp())
         distribution = MultivariateNormal(actions_mean, scale_tril=covariance)
@@ -226,7 +228,7 @@ class MLPEncode(nn.Module):
 
 class Actor(nn.Module):
     def __init__(self, device, model_cfg, activation_fn, output_activation_fn = None, small_init= False):
-        super(Actor).__init__()
+        super(Actor,self).__init__()
         #网络子模块结构
         actor_hidden_shape = model_cfg.actor.actor_hidden_shape  # actor 网络结构
         suspensin_hidden_shape = model_cfg.actor.suspension_hidden_shape  # suspension net
@@ -249,7 +251,7 @@ class Actor(nn.Module):
         self.steer_latten_dim=model_cfg.actor.steer_latten_dim       #转向模块输入参数大小
 
         #模块输入输出尺寸
-        self.actor_input_size=self.obs_dim+vision_latent_dim
+        self.actor_input_size=self.obs_dim+vision_latent_dim+prop_latent_dim
         self.actor_output_size=self.suspension_latten_dim+self.steer_latten_dim
         suspension_input_size=self.suspension_latten_dim+history_latent_dim
         suspension_output_size=model_cfg.actor.suspension_output_dim     #12
@@ -297,11 +299,14 @@ class Actor(nn.Module):
         geom_latent=[]
         if self.vision_dim>0:
             vision_latent=self.vision_encoder(x[:,-self.vision_dim:])
-        if self.geom_dim>0:
-            geom_latent=self.geom_encoder(x[:, self.obs_dim+self.prop_dim : -self.vision_dim-1])
+            if self.geom_dim>0:
+                geom_latent=self.geom_encoder(x[:, self.obs_dim+self.prop_dim : -self.vision_dim])
+        else:
+            if self.geom_dim>0:
+                geom_latent=self.geom_encoder(x[:, self.obs_dim+self.prop_dim :])
         prop_latent=self.prop_encoder(x[:, self.obs_dim:self.obs_dim+self.prop_dim])
-        action_latent=self.action_mlp(torch.cat([x[:, :self.obs_dim], prop_latent, vision_latent]), 1)
-        suspension_output=self.suspension_mlp(torch.cat([action_latent[:, :self.suspension_latten_dim], geom_latent]), 1)
+        action_latent=self.action_mlp(torch.cat((x[:, :self.obs_dim], prop_latent, torch.tensor(vision_latent, device=self.device)), 1))
+        suspension_output=self.suspension_mlp(torch.cat((action_latent[:, :self.suspension_latten_dim], geom_latent), 1))
         steer_output=self.steer_mlp(action_latent[:, self.suspension_latten_dim:])
         return torch.cat([suspension_output,steer_output], dim=1)
 
@@ -327,8 +332,8 @@ class MLP(nn.Module):
         scale.append(np.sqrt(2))
 
         self.init_weights(self.architecture, scale)
-        if small_init: action_output_layer.weight.data *= 1e-6
-
+        if small_init:
+            action_output_layer.weight.data *= 1e-6
 
 
     @staticmethod
@@ -339,7 +344,6 @@ class MLP(nn.Module):
     def forward(self,x):
         output=self.architecture(x)
         return output
-
 
 class StateHistoryEncoder(nn.Module):
     def __init__(self, activation_fn, tsteps, input_size, output_size, statehistory_encoder):

@@ -64,7 +64,7 @@ class VEHICLETERRAINPPO:
 
     def run(self, num_learning_iterations, log_interval=1):
         if self.wandb:
-            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="VI_train_1", dir=self.log_dir+"/wandb")
+            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="VI_train_2", dir=self.log_dir+"/wandb")
         current_obs=self.vec_env.reset()['obs']
         if self.is_testing:
             while True:

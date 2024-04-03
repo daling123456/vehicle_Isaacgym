@@ -416,7 +416,7 @@ class VehicleTerrain(VecTask):
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_x']
         rew_ang_vel_z=torch.exp(-ang_vel_error/0.25)*self.rew_scales['ang_vel_z']
-        # print(self.base_lin_vel[:, 0])
+        print(self.base_lin_vel[:, 0])
 
         # other base velocity penalties
         # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_yz"]

@@ -38,7 +38,9 @@ import open3d as o3d
 
 from vehicle_Isaacgym.vehicle.tasks.base.vec_task import VecTask
 from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import *
-
+from vehicle_Isaacgym.vehicle.Terrains import *
+# from vehicle_Isaacgym.Pi_robot.terrains import *
+from isaacgym.terrain_utils import *
 class Cwego(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -142,6 +144,10 @@ class Cwego(VecTask):
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.extras = {}
 
+        if self.terrain_type=='plane':
+            self.wheel_air_tips = 0.5
+        else:
+            self.wheel_air_tips=2
 
         self.height_points=self.init_height_points()
         self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
@@ -164,16 +170,30 @@ class Cwego(VecTask):
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
         self.sim=super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
-        terrain_type=self.cfg['env']['terrain']['terrainType']
-        if terrain_type=='plane':
+        self.terrain_type=self.cfg['env']['terrain']['terrainType']
+        if self.terrain_type=='plane':
             self._create_ground_plane()
-            self.wheel_air_tips = 0.5
-        elif terrain_type=="trimesh":
-            self.wheel_air_tips=2
+        else:
             self._create_trimesh()
             self.custom_origins=True
 
         self._create_envs(self.num_envs, self.cfg['env']['envSpacing'], int(np.sqrt(self.num_envs)))
+
+    # def create_sim(self):
+    #     self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
+    #     self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+    #     self.terrain_type = self.cfg["env"]["terrain"]["terrainType"]
+    #     from vehicle_Isaacgym.Pi_robot.terrains import ALL_TERRAINS
+    #     if self.terrain_type not in ALL_TERRAINS.keys():
+    #         raise ValueError(f"Terrain mesh type {self.terrain_type} not recognised. Allowed types are {ALL_TERRAINS.keys()}")
+    #     self.terrain = Terrain(self.cfg['env']['terrain'], self.num_envs)
+    #     self.terrain_props=None
+    #     self.custom_heightmap=None
+    #     self.terrain_obj = ALL_TERRAINS[self.terrain_type](self)
+    #     if self.terrain_type != 'plane':
+    #         self.height_samples = torch.tensor(self.terrain.heightsamples).view(self.terrain.tot_rows, self.terrain.tot_cols).to(self.device)
+    #     self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+    #     self.terrain_obj.initialize()
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -184,7 +204,7 @@ class Cwego(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_trimesh(self):
-        self.terrain=Terrain(self.cfg["env"]["terrain"], num_robots=self.num_envs)
+        self.terrain=ALL_TERRAINS[self.terrain_type](self.cfg["env"]["terrain"], num_robots=self.num_envs)
         tm_params = gymapi.TriangleMeshParams()
         tm_params.nb_vertices = self.terrain.vertices.shape[0]
         tm_params.nb_triangles = self.terrain.triangles.shape[0]
@@ -410,7 +430,7 @@ class Cwego(VecTask):
                                 self.contact_forces[:,:,2],        #26
                                 heights,        #41x12=492
                                 ), dim=1)
-        if self.cfg.env.terrain.use_pcd:
+        if self.cfg.env.terrain.use_pcd and self.terrain_type !="plane":
             self.terrain_map()
 
     def compute_reward(self):
@@ -522,7 +542,7 @@ class Cwego(VecTask):
             # torques_vel=torch.clip(self.Kp_v*(self.action_scale*self.actions+self.target_vel-self.dof_vel)-self.Kd_v*self.joint_acc, -10000, 10000)
 
             self.torques = torques.view(self.torques.shape)
-            print(self.torques[0])
+            # print(self.torques[0])
             # print("--------------------------")
             # print(self.dof_pos[0])
             # self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
@@ -697,7 +717,7 @@ class Cwego(VecTask):
         return heights.view(self.num_envs, -1) * self.terrain.vertical_scale    #是否乘以self.terrain.vertical_scale
 
     def terrain_map(self):
-        points = self.points[0].detach().cpu().numpy()
+        points = self.points[0].detach().cpu().numpy()/10
         # print(points)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
@@ -726,136 +746,6 @@ class Cwego(VecTask):
             self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.destroy_viewer(self.viewer)
         self.gym.destroy_sim(self.sim)
-
-
-from isaacgym.terrain_utils import *
-class Terrain():
-    def __init__(self, cfg, num_robots):
-        self.horizontal_scale=0.1
-        self.border_size = 20
-        self.vertical_scale=0.005
-        self.env_length = cfg["mapLength"]
-        self.env_width = cfg["mapWidth"]
-        self.proportions=[np.sum(cfg["terrainProportions"][:i+1]) for i in range(len(cfg['terrainProportions']))]   #[0.1, 0.2, 0.55, 0.8, 1.0]
-
-        self.env_rows=cfg["numLevels"]
-        self.env_cols=cfg["numTerrains"]
-        self.num_maps= self.env_rows * self.env_cols
-        self.env_origins=np.zeros((self.env_rows, self.env_cols, 3))
-
-        self.width_per_env_pixels= int(self.env_width / self.horizontal_scale)
-        self.length_per_env_pixels= int(self.env_length/ self.horizontal_scale)
-
-        self.border = int(self.border_size/self.horizontal_scale)
-        self.total_cols=int(self.env_cols*self.width_per_env_pixels)+2*self.border
-        self.total_rows=int(self.env_rows*self.width_per_env_pixels)+2*self.border
-
-        self.height_field_raw=np.zeros((self.total_rows, self.total_cols), dtype=np.int16)
-        if cfg["curriculum"]:
-            self.curiculum(num_robots, num_terrains=self.env_cols, num_levels=self.env_rows)
-        else:
-            self.randomized_terrain()
-
-        self.heightsamples=self.height_field_raw
-        self.vertices, self.triangles = convert_heightfield_to_trimesh(self.height_field_raw, self.horizontal_scale, self.vertical_scale, cfg["slopeTreshold"])
-
-
-    def randomized_terrain(self):
-        for k in range(self.num_maps):
-            (i, j)= np.unravel_index(k, (self.env_rows, self.env_cols))
-
-            start_x=self.border+i * self.length_per_env_pixels
-            end_x=self.border+(i+1) * self.length_per_env_pixels
-            start_y=self.border+j * self.length_per_env_pixels
-            end_y=self.border+(j+1) * self.length_per_env_pixels
-
-            terrain=SubTerrain(width=self.width_per_env_pixels,
-                               length=self.width_per_env_pixels,
-                               vertical_scale=self.vertical_scale,
-                               horizontal_scale=self.horizontal_scale)
-
-            choice=np.random.uniform(0,1)
-
-            if choice<0.1:
-                if np.random.choice([0,1]):
-                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
-                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step=0.05, downsampled_scale=0.2)
-                else:
-                    pyramid_sloped_terrain(terrain, np.random.choice([-0.3, -0.2, 0, 0.2, 0.3]))
-            elif choice<0.6:
-                step_height = np.random.choice([-0.15, 0.15])
-                pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
-            elif choice<1:
-                discrete_obstacles_terrain(terrain, 0.15, 1., 2., 40, platform_size=3.)
-
-            self.height_field_raw[start_x:end_x, start_y:end_y] = terrain.height_field_raw
-
-            env_origin_x=(i+0.5)*self.env_length
-            env_origin_y=(j+0.5)*self.env_width
-            x1=int((self.env_length/2.-1)/self.horizontal_scale)
-            x2=int((self.env_length/2+1)/self.horizontal_scale)
-            y1 = int((self.env_width / 2. - 1) / self.horizontal_scale)
-            y2 = int((self.env_width / 2. + 1) / self.horizontal_scale)
-            env_origin_z=np.max(terrain.height_field_raw[x1:x2,y1:y2])*self.vertical_scale
-            self.env_origins[i,j]=[env_origin_x, env_origin_y, env_origin_z]
-
-
-    def curiculum(self, num_robots, num_terrains, num_levels):
-        num_robots_per_map = int(num_robots/ num_terrains)
-        left_over=num_robots % num_terrains
-        for j in range(num_terrains):
-            for i in range(num_levels):
-                terrain=SubTerrain("terrain", width=self.width_per_env_pixels, length=self.width_per_env_pixels,
-                                   vertical_scale=self.vertical_scale, horizontal_scale=self.horizontal_scale)
-                difficulty=i/num_levels
-                choice=j/num_terrains
-                slope=difficulty*0.4
-                step_height=0.05+0.175*difficulty
-                discrete_obstacles_height=0.025+difficulty*0.15
-                amplitude=0.1+difficulty*0.5
-                stepping_stones_size=2-1.8*difficulty
-
-                if choice<self.proportions[0]:
-                    if choice<0.05:
-                        slope*=-1
-                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
-                elif choice<self.proportions[1]:
-                    if choice<0.15:
-                        slope*=-1
-                    pyramid_sloped_terrain(terrain, slope, platform_size=3.)
-                    random_uniform_terrain(terrain, min_height=-0.1, max_height=0.1, step= 0.025, downsampled_scale=0.2)
-                elif choice<self.proportions[3]:
-                    if choice<self.proportions[2]:
-                        step_height*=-1
-                    pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
-                elif choice < self.proportions[4]:
-                    discrete_obstacles_terrain(terrain, discrete_obstacles_height, 1., 2., 40, platform_size=3.)
-                else:
-                    wave_terrain(terrain, num_waves=1, amplitude=amplitude)
-                    # stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=0.1, max_height=0.,
-                    #                         platform_size=3.)
-
-                start_x=self.border+i * self.length_per_env_pixels
-                end_x=self.border+(i+1) * self.length_per_env_pixels
-                start_y=self.border+j * self.length_per_env_pixels
-                end_y=self.border+(j+1) * self.length_per_env_pixels
-                self.height_field_raw[start_x:end_x, start_y:end_y]=terrain.height_field_raw
-
-                robots_in_map = num_robots_per_map
-                if j < left_over:
-                    robots_in_map+=1
-
-                env_origin_x=(i+0.5) * self.env_length  # - 为变化出生点x
-                env_origin_y=(j+0.5) * self.env_width
-
-                x1= int((self.env_length/2-1)/self.horizontal_scale)
-                x2= int((self.env_length/2+1)/self.horizontal_scale)
-                y1= int((self.env_width/2-1)/self.horizontal_scale)
-                y2= int((self.env_width/2+1)/self.horizontal_scale)
-                env_origin_z=np.max(terrain.height_field_raw[x1:x2, y1:y2])* self.vertical_scale
-                # env_origin_z=0.
-                self.env_origins[i,j] = [env_origin_x, env_origin_y, env_origin_z]
-
 
 @torch.jit.script
 def quat_apply_yaw(quat, vec):

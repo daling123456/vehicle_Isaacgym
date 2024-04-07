@@ -46,7 +46,7 @@ class VehicleTerrain(VecTask):
         self.init_done=False
 
 
-        # normalization
+        # normalization     #TODO; 这是司马？
         self.lin_vel_scale = self.cfg["env"]["learn"]["linearVelocityScale"]
         self.ang_vel_scale = self.cfg["env"]["learn"]["angularVelocityScale"]
         self.dof_pos_scale = self.cfg["env"]["learn"]["dofPositionScale"]
@@ -87,6 +87,7 @@ class VehicleTerrain(VecTask):
         self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
         self.rew_scales['base_contact']= self.cfg['env']['learn']['basecontactRewardScale']
+        self.rew_scales['life_time']= self.cfg['env']['learn']['LifeTimeRewardScale']
 
 
         #command ranges
@@ -130,6 +131,7 @@ class VehicleTerrain(VecTask):
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
         self.wheel_air_time = torch.zeros(self.num_envs, 6, dtype=torch.float, device=self.device, requires_grad=False)
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.alive=torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
 
         self.height_points=self.init_height_points()
@@ -335,6 +337,7 @@ class VehicleTerrain(VecTask):
         self.last_dof_vel[env_ids]= 0.
         self.progress_buf[env_ids]=0
         self.reset_buf[env_ids]= 1.         #TODO:why?
+        # self.wheel_air_time[env_ids]=0
         self.wheel_air_time.zero_()
 
         #填写extras 及计算清理env_ids 对应的episode_sums
@@ -361,8 +364,8 @@ class VehicleTerrain(VecTask):
         # print(torch.sum(self.reset_buf.cpu()))
         # print(self.contact_forces[:, self.base_index, :].cpu().numpy())
         # print(self.reset_buf)
-        #six wheels left the plane
         self.reset_buf|=torch.norm(self.contact_forces[:,self.slider_index,:],dim=1)>1
+        #six wheels left the plane
         # print(torch.sum(self.reset_buf.cpu()))
         contact=self.contact_forces[:, self.wheel_index, 2]>1.
         # print(~torch.any(contact, dim=1))
@@ -416,7 +419,9 @@ class VehicleTerrain(VecTask):
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         rew_lin_vel_x=torch.exp(-lin_vel_error/0.25)*self.rew_scales['lin_vel_x']
         rew_ang_vel_z=torch.exp(-ang_vel_error/0.25)*self.rew_scales['ang_vel_z']
-        print(self.base_lin_vel[:, 0])
+        self.lin_vel_error=torch.mean(lin_vel_error)
+        self.ang_vel_error=torch.mean(ang_vel_error)
+        # print(self.commands[:, 0] - self.base_lin_vel[:, 0])
 
         # other base velocity penalties
         # rew_lin_vel_yz = torch.square(self.base_lin_vel[:, 1:3]) * self.rew_scales["lin_vel_yz"]
@@ -430,7 +435,7 @@ class VehicleTerrain(VecTask):
         # 6 wheel air time penalty 对轮子不贴地的惩罚
         contact = self.contact_forces[:, self.wheel_index, 2] > 1
         self.wheel_air_time += self.dt
-        rew_airTime = torch.sum(self.wheel_air_time - 0.01, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
+        rew_airTime = torch.sum(self.wheel_air_time - 0.005, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
         # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
         self.wheel_air_time *= ~contact
         # print(self.wheel_air_time)
@@ -455,6 +460,10 @@ class VehicleTerrain(VecTask):
 
         # 13 stability margin
         rew_stab_margin=0
+
+        # 14 alive
+        self.alive+=self.dt
+        rew_alive=self.alive* self.rew_scales['life_time']
 
         self.rew_buf= rew_lin_vel_x + rew_lin_vel_yz + rew_ang_vel_xy + rew_ang_vel_z  + rew_orient + rew_joint_acc + rew_action_rate \
                       + rew_airTime + rew_base_contact
@@ -502,7 +511,7 @@ class VehicleTerrain(VecTask):
         # print(self.actions.detach().cpu().numpy()[0])
         # 一次控制多步运动
         for i in range(self.decimation):
-            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -800, 800)     #TODO:急需修改 80完全控制不了
+            torques=torch.clip(self.Kp*(self.action_scale*self.actions+self.default_dof_pos-self.dof_pos)-self.Kd*self.dof_vel, -2000, 2000)     #TODO:急需修改 80完全控制不了
             self.torques = torques.view(self.torques.shape)
             # print(self.torques[0])
             # print(self.dof_pos[0])
@@ -552,7 +561,7 @@ class VehicleTerrain(VecTask):
         self.last_dof_vel[:]=self.dof_vel[:]
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
-            print("-----------------------")
+            # print("-----------------------")
             self.gym.clear_lines(self.viewer)
             self.gym.refresh_rigid_body_state_tensor(self.sim)
             sphere_geom=gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))

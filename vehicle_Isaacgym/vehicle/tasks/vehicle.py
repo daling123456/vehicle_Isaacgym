@@ -155,7 +155,7 @@ class Vehicle(VecTask):
                              "orient": torch_zeros(), "torques": torch_zeros(), "joint_acc": torch_zeros(),
                              "base_height": torch_zeros(), "base_contact": torch_zeros(),
                              "airTime": torch_zeros(), "collision": torch_zeros(), "stumble": torch_zeros(),
-                             "action_rate": torch_zeros(), "hip": torch_zeros(), "total_rewards": torch_zeros()}
+                             "action_rate": torch_zeros(), "hip": torch_zeros(), "total": torch_zeros()}
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.init_done=True
@@ -346,7 +346,7 @@ class Vehicle(VecTask):
         self.last_dof_vel[env_ids]= 0.
         self.progress_buf[env_ids]=0
         self.reset_buf[env_ids]= 1.         #TODO:why?
-        self.wheel_air_time[env_ids].zero_()
+        self.wheel_air_time[env_ids]=0
         self.alive[env_ids]=0
 
         #填写extras 及计算清理env_ids 对应的episode_sums
@@ -436,7 +436,7 @@ class Vehicle(VecTask):
         contact = self.contact_forces[:, self.wheel_index, 2] > 1
         # first_contact = (self.feet_air_time > 0.) * contact       #TODO:这个需要吗？
         self.wheel_air_time += self.dt
-        rew_airTime = torch.sum(self.wheel_air_time - 0.01, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
+        rew_airTime = torch.sum(self.wheel_air_time - 0.005, dim=1) * self.rew_scales["air_time"]  # reward only on first contact with the ground
         # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1  # no reward for zero command
         self.wheel_air_time *= ~contact
         # print(self.wheel_air_time)
@@ -470,6 +470,7 @@ class Vehicle(VecTask):
                       + rew_airTime + rew_base_contact
         self.rew_buf = torch.clip(self.rew_buf, min=0, max=None)
         self.rew_buf+= self.rew_scales['termination'] * self.reset_buf * ~self.timeout_buf
+        rew_total=self.rew_buf
         if self.print_reward:
             print(f"rew_lin_vel_x:{torch.sum(rew_lin_vel_x)},rew_lin_vel_yz:{torch.sum(rew_lin_vel_yz)},rew_ang_vel_xy:{torch.sum(rew_ang_vel_xy)},"
                   f"rew_ang_vel_z:{torch.sum(rew_ang_vel_z)}，\nrew_orient:{torch.sum(rew_orient)},rew_joint_acc:{torch.sum(rew_joint_acc)},"
@@ -491,7 +492,7 @@ class Vehicle(VecTask):
         self.episode_sums["base_height"] += rew_base_height
         self.episode_sums["airTime"] += rew_airTime
         self.episode_sums["base_contact"] += rew_base_contact
-        self.episode_sums["total_rewards"] += self.rew_buf
+        self.episode_sums["total"] += rew_total
         # self.episode_sums["lin_vel"] +=
 
 

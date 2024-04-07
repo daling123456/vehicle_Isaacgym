@@ -20,8 +20,8 @@ class HeightfieldTerrain(Terrain):
         hf_params.transform.p.x = -self.env.terrain.cfg.border_size
         hf_params.transform.p.y = -self.env.terrain.cfg.border_size
         hf_params.transform.p.z = 0.0
-        hf_params.static_friction = self.env.cfg.env.terrain.static_friction
-        hf_params.dynamic_friction = self.env.cfg.env.terrain.dynamic_friction
+        hf_params.static_friction = self.env.cfg.env.terrain.staticFriction
+        hf_params.dynamic_friction = self.env.cfg.env.terrain.dynamicFriction
         hf_params.restitution = self.env.cfg.env.terrain.restitution
 
         print(self.env.terrain.heightsamples.shape, hf_params.nbRows, hf_params.nbColumns)

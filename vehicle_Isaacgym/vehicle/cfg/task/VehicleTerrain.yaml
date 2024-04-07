@@ -84,8 +84,6 @@ env:
 
   urdfAsset:
     file: "urdf/vehicle/cwego.urdf"
-    footName: SHANK # SHANK if collapsing fixed joint, FOOT otherwise
-    lift1Name: THIGH
     collapseFixedJoints: True
     fixBaseLink: false
     defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
@@ -97,23 +95,22 @@ env:
     linearVelocityXYRewardScale: 1
     linearVelocityZRewardScale: -0.05
     angularVelocityXYRewardScale: -0.05
-    angularVelocityZRewardScale: 0.0
+    angularVelocityZRewardScale: 0.
     orientationRewardScale: -1 #-1.
     torqueRewardScale: -0.00002 # -0.000025
     jointAccRewardScale: -0.0005 # -0.0025
-    baseHeightRewardScale: -5 #5
+    baseHeightRewardScale: -0 #5
     wheelAirTimeRewardScale:  -0.1
     basecontactRewardScale: -0.0000025
     wheelStumbleRewardScale: -0. #-2.0
     actionRateRewardScale: -0.01
+    LifeTimeRewardScale: 0
 
     printreward: ${....printreward}
-    # cosmetics
-    hipRewardScale: -0. #25
 
-    # normalization
-    linearVelocityScale: 2.0
-    angularVelocityScale: 0.25
+    # normalization   #TODO
+    linearVelocityScale:  2 #2.0
+    angularVelocityScale:  0.25   #0.25
     dofPositionScale: 1.0
     dofVelocityScale: 0.05
     heightMeasurementScale: 5.0

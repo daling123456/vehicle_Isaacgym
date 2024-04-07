@@ -8,14 +8,15 @@ class GroundPlaneTerrain(Terrain):
         super().__init__(env)
         self.prepare()
 
+
     def prepare(self):
         """ Adds a ground plane to the simulation, sets friction and restitution based on the cfg.
         """
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-        plane_params.static_friction = self.env.cfg.terrain.static_friction
-        plane_params.dynamic_friction = self.env.cfg.terrain.dynamic_friction
-        plane_params.restitution = self.env.cfg.terrain.restitution
+        plane_params.static_friction = self.env.cfg.env.terrain.staticFriction
+        plane_params.dynamic_friction = self.env.cfg.env.terrain.dynamicFriction
+        plane_params.restitution = self.env.cfg.env.terrain.restitution
         self.env.gym.add_ground(self.env.sim, plane_params)
 
     def initialize(self):

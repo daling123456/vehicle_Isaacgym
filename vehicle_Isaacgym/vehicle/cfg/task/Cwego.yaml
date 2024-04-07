@@ -11,17 +11,60 @@ env:
   enableDebugVis: False
 
   terrain:
+    proportions: ''
+    terrain_props: [0.1, 0.1, 0.2, 0.2, 0.2, 0.2]
+    num_sub_terrains: 0
+    env_origins: ''
+    width_per_env_pixels: ''
+    length_per_env_pixels: ''
+    border_size: 0.0
+    border: ''
+    tot_cols: 0
+    tot_rows: 0
+    terrain_length: 10
+    terrain_width: 10
+    horizontal_scale: 0.1
+    vertical_scale: 0.005
+    max_platform_height: 0.5
+    terrain_smoothness: 0.1
+    row_indices: 0
+    col_indices: 0
+    x_offset: 0
+    rows_offset: 0
+    env_length: 0
+    env_width: 0
+    difficulty_scale: 0.1
+    num_border_boxes: 5.0
+    slope_treshold: 0.75
+    max_step_run: 0.4
+
+    x_init_range: 0.2
+    y_init_range: 0.2
+    yaw_init_range: 3.14
+    x_init_offset: 0.0
+    y_init_offset: 0.0
+    teleport_robots: false
+    teleport_thresh: 0.3
+    max_step_height: 0.26
+    min_step_run: 0.25
+    center_robots: false
+    center_span: 3
+    measure_heights: false
+
+
     terrainType: ${....terrain_type} # none, plane, or trimesh
     staticFriction: 1.0  # [-]
     dynamicFriction: 1.0  # [-]
     restitution: 0.        # [-]
     # rough terrain only:
-    curriculum: true
+    curriculum: false
     maxInitMapLevel: 0
     mapLength: 8.
     mapWidth: 8.
     numLevels: 10
     numTerrains: 20
+    num_rows: 20
+    num_cols: 20
     # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
     terrainProportions: [0.1, 0.1, 0.2, 0.2, 0.2, 0.2]
     # tri mesh only:
@@ -178,3 +221,78 @@ sim:
 
 task:
   randomize: False
+
+
+domain_rand:
+  rand_interval_s: 6
+  randomize_rigids_after_start: false
+  randomize_friction: false
+  randomize_friction_indep: false
+  randomize_ground_friction: true
+  randomize_restitution: false
+  randomize_ground_restitution: false
+  randomize_tile_roughness: false
+  randomize_base_mass: true
+  randomize_com_displacement: false
+  randomize_motor_strength: true
+  randomize_motor_offset: true
+  randomize_Kp_factor: true
+  randomize_Kd_factor: true
+  randomize_gravity: false
+  randomize_ball_drag: true
+  randomize_ball_restitution: false
+  randomize_ball_friction: false
+  friction_range:
+    - 0.0
+    - 1.5
+  restitution_range:
+    - 0.0
+    - 0.4
+  ground_friction_range:
+    - 0.7
+    - 4.0
+  ground_restitution_range:
+    - 0
+    - 1.0
+  tile_roughness_range:
+    - 0.0
+    - 0.0
+  added_mass_range:
+    - -1.0
+    - 3.0
+  com_displacement_range:
+    - -0.15
+    - 0.15
+  motor_strength_range:
+    - 0.99
+    - 1.01
+  motor_offset_range:
+    - -0.002
+    - 0.002
+  Kp_factor_range:
+    - 0.8
+    - 1.3
+  Kd_factor_range:
+    - 0.5
+    - 1.5
+  gravity_rand_interval_s: 8.0
+  gravity_impulse_duration: 0.99
+  gravity_range:
+    - -1.0
+    - 1.0
+  drag_range:
+    - -0.1
+    - 0.8
+  ball_drag_rand_interval_s: 15.0
+  ball_restitution_range:
+    - 0.5
+    - 1.0
+  ball_friction_range:
+    - 0.5
+    - 1.0
+  push_robots: false
+  push_interval_s: 15
+  max_push_vel_xy: 0.5
+  randomize_lag_timesteps: true
+  lag_timesteps: 6
+  restitution: 0.5

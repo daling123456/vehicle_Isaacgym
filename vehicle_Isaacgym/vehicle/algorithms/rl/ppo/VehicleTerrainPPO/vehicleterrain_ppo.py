@@ -64,7 +64,8 @@ class VEHICLETERRAINPPO:
 
     def run(self, num_learning_iterations, log_interval=1):
         if self.wandb:
-            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="VI_train_2", dir=self.log_dir+"/wandb")
+            os.path.join(self.log_dir+"/wandb")
+            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="VI_train_"+self.log_dir[-8:], dir=self.log_dir)
         current_obs=self.vec_env.reset()['obs']
         if self.is_testing:
             while True:
@@ -126,6 +127,7 @@ class VEHICLETERRAINPPO:
                                "stumble": self.vec_env.extras['episode']['rew_stumble'],"action_rate": self.vec_env.extras['episode']['rew_action_rate'],
                                "total_rewards": self.vec_env.extras['episode']['rew_total'],
                     }, step=it)
+                    wandb.log({"lin_vel_error": self.vec_env.lin_vel_error, "ang_vel_error":self.vec_env.ang_vel_error})
             self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))
             wandb.finish()
 

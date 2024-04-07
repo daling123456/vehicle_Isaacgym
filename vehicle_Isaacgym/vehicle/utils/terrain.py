@@ -9,7 +9,6 @@ from numpy.random import choice
 
 class Terrain:
     def __init__(self, cfg, num_robots, eval_cfg=None, num_eval_robots=0) -> None:
-
         self.cfg = cfg
         self.eval_cfg = eval_cfg
         self.num_robots = num_robots

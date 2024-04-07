@@ -67,7 +67,7 @@ class VEHICLEPPO:
     def run(self, num_learning_iterations, log_interval=1):
         current_obs=self.vec_env.reset()['obs']
         if self.wandb:
-            wandb.init(project="terrain_rewards_1", entity="vehicle_isaacgym", name="test_curves_6", dir=self.log_dir+"/wandb")
+            wandb.init(project="plane_rewards_01", entity="vehicle_isaacgym", name="V_test_1", dir=self.log_dir+"/wandb")
             # wandb.save(self.log_dir+'/env.hpp')
 
         if self.is_testing:
@@ -132,7 +132,7 @@ class VEHICLEPPO:
                                "joint_acc": self.vec_env.extras['episode']['rew_joint_acc'],"base_height": self.vec_env.extras['episode']['rew_base_height'],
                                "airtime": self.vec_env.extras['episode']['rew_airTime'], "base_contact": self.vec_env.extras['episode']['rew_base_contact'],
                                "stumble": self.vec_env.extras['episode']['rew_stumble'],"action_rate": self.vec_env.extras['episode']['rew_action_rate'],
-                               "total_rewards": self.vec_env.extras['episode']['total_rewards']
+                               "total_rewards": self.vec_env.extras['episode']['rew_total']
                     }, step=it)
 
             self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))

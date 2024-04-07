@@ -26,19 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
-import os, time
+import os
 
 from isaacgym import gymtorch
-from isaacgym import gymapi
-from .base.vec_task import VecTask
 
 import torch
-from typing import Tuple, Dict
 
 from vehicle_Isaacgym.vehicle.utils.torch_jit_utils import to_torch, get_axis_params, torch_rand_float, normalize, quat_apply, quat_rotate_inverse
 from vehicle_Isaacgym.vehicle.tasks.base.vec_task import VecTask
-from vehicle_Isaacgym.vehicle.utils.terrain import Terrain, perlin
+from vehicle_Isaacgym.vehicle.utils.terrain import Terrain
 
 
 class PiTerrain(VecTask):
@@ -171,7 +167,7 @@ class PiTerrain(VecTask):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         terrain_type = self.cfg["env"]["terrain"]["terrainType"]
-        from vehicle_Isaacgym.vehicle.terrains import ALL_TERRAINS
+        from vehicle_Isaacgym.Pi_robot.terrains import ALL_TERRAINS
         if terrain_type not in ALL_TERRAINS.keys():
             raise ValueError(f"Terrain mesh type {terrain_type} not recognised. Allowed types are {ALL_TERRAINS.keys()}")
         self.terrain = Terrain(self.cfg['env']['terrain'], self.num_envs)

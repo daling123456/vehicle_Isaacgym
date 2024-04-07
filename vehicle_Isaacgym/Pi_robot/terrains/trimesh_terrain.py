@@ -18,8 +18,8 @@ class TrimeshTerrain(Terrain):
         tm_params.transform.p.x = -self.env.terrain.cfg.border_size
         tm_params.transform.p.y = -self.env.terrain.cfg.border_size
         tm_params.transform.p.z = 0.0
-        tm_params.static_friction = self.env.cfg.env.terrain.static_friction
-        tm_params.dynamic_friction = self.env.cfg.env.terrain.dynamic_friction
+        tm_params.static_friction = self.env.cfg.env.terrain.staticFriction
+        tm_params.dynamic_friction = self.env.cfg.env.terrain.dynamicFriction
         tm_params.restitution = self.env.cfg.env.terrain.restitution
         self.env.gym.add_triangle_mesh(self.env.sim, self.env.terrain.vertices.flatten(order='C'),
                                    self.env.terrain.triangles.flatten(order='C'), tm_params)
